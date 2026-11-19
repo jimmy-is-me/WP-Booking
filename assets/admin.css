@@ -1,0 +1,92 @@
+.wpb-admin-cards {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(min(100%, 310px), 1fr));
+	gap: 16px;
+	max-width: 1100px;
+	align-items: start;
+}
+
+.wpb-admin-card {
+	box-sizing: border-box;
+	padding: 20px;
+	border: 1px solid #dcdcde;
+	border-radius: 6px;
+	background: #fff;
+}
+
+.wpb-admin-card h2 {
+	margin: 0 0 14px;
+	font-size: 16px;
+}
+
+.wpb-admin-card label {
+	display: block;
+	margin: 0 0 14px;
+	font-weight: 600;
+}
+
+.wpb-admin-card :is(input:not([type="checkbox"], [type="submit"]), textarea) {
+	box-sizing: border-box;
+	display: block;
+	width: 100%;
+	margin: 5px 0 0;
+	font-weight: 400;
+}
+
+.wpb-admin-filters,
+.wpb-admin-pages,
+.wpb-admin-action {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 8px;
+}
+
+.wpb-admin-filters {
+	align-items: end;
+	margin: 16px 0;
+}
+
+.wpb-admin-filters label > * {
+	display: block;
+	margin-top: 4px;
+}
+
+.wpb-admin-overflow {
+	overflow-x: auto;
+}
+
+.wpb-admin-overflow th,
+.wpb-admin-overflow td {
+	min-width: 105px;
+	padding: 12px;
+}
+
+.wpb-admin-overflow details {
+	min-width: 155px;
+	max-width: 290px;
+	margin-top: 5px;
+	overflow-wrap: anywhere;
+}
+
+.wpb-admin-overflow summary {
+	cursor: pointer;
+}
+
+.wpb-admin-pages {
+	margin-top: 12px;
+}
+
+.wpb-admin-status {
+	display: inline-block;
+	padding: 2px 8px;
+	border-radius: 4px;
+	background: #f0f0f1;
+	color: #3c434a;
+	white-space: nowrap;
+}
+
+.wpb-admin-pending { background: #fcf0c4; color: #5f4105; }
+.wpb-admin-confirmed { background: #deddfc; color: #312676; }
+.wpb-admin-completed { background: #e5f5e9; color: #14532d; }
+.wpb-admin-cancelled { background: #fce8e6; color: #8a2424; }

@@ -1,0 +1,204 @@
+.wpb {
+	--wpb-ink: #182b28;
+	--wpb-muted: #4a605b;
+	--wpb-accent: #18574b;
+	--wpb-border: #bccbc5;
+	--wpb-panel: #fff;
+	box-sizing: border-box;
+	width: 100%;
+	max-width: 920px;
+	margin: 1.5rem auto;
+	padding: clamp(16px, 3vw, 34px);
+	border: 1px solid #d3ded8;
+	border-radius: 24px;
+	background: #f3f7f4;
+	color: var(--wpb-ink);
+	font-family: inherit;
+	line-height: 1.55;
+}
+
+.wpb *,
+.wpb *::before,
+.wpb *::after {
+	box-sizing: border-box;
+}
+
+.wpb [hidden] { display: none !important; }
+
+.wpb .wpb-header {
+	margin: 0 0 24px;
+	padding: clamp(22px, 4vw, 40px);
+	border-radius: 16px;
+	background: #173d36;
+	color: #fff;
+}
+
+.wpb .wpb-header h2 {
+	margin: 0 0 6px;
+	color: inherit;
+	font-size: clamp(1.55rem, 4vw, 2.4rem);
+	line-height: 1.2;
+	letter-spacing: .025em;
+}
+
+.wpb .wpb-header p {
+	margin: 0;
+	color: #e0efe8;
+}
+
+.wpb .wpb-form {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+	align-items: start;
+	gap: 16px;
+	margin: 0;
+}
+
+.wpb .wpb-panel,
+.wpb .wpb-result {
+	min-width: 0;
+	padding: clamp(16px, 2.5vw, 26px);
+	border: 1px solid #d7e2dc;
+	border-radius: 16px;
+	background: var(--wpb-panel);
+}
+
+.wpb .wpb-panel h3,
+.wpb .wpb-result h3 {
+	margin: 0 0 18px;
+	color: var(--wpb-ink);
+	font-size: 1.18rem;
+	font-weight: 700;
+}
+
+.wpb .wpb-field {
+	display: block;
+	margin: 0 0 14px;
+}
+
+.wpb .wpb-field span,
+.wpb .wpb-slots-field legend {
+	display: block;
+	margin-bottom: 6px;
+	font-size: .95rem;
+	font-weight: 650;
+}
+
+.wpb .wpb-field small {
+	margin-inline-start: 3px;
+	color: var(--wpb-muted);
+	font-weight: 400;
+}
+
+.wpb .wpb-field :is(input, select, textarea) {
+	display: block;
+	width: 100%;
+	min-width: 0;
+	min-height: 44px;
+	margin: 0;
+	padding: 8px 10px;
+	border: 1px solid var(--wpb-border);
+	border-radius: 8px;
+	background: #fff;
+	color: var(--wpb-ink);
+	font: inherit;
+	font-size: max(16px, 1rem);
+}
+
+.wpb .wpb-field textarea { resize: vertical; }
+
+.wpb .wpb-button,
+.wpb .wpb-slots label span {
+	display: inline-flex;
+	min-height: 44px;
+	align-items: center;
+	justify-content: center;
+	margin: 0;
+	padding: 8px 14px;
+	border: 1px solid transparent;
+	border-radius: 8px;
+	background: var(--wpb-accent);
+	color: #fff;
+	font: inherit;
+	font-weight: 650;
+	text-align: center;
+	text-transform: none;
+	cursor: pointer;
+}
+
+.wpb .wpb-button:not(:disabled):hover { background: #0c4238; color: #fff; }
+.wpb .wpb-button:disabled { opacity: .56; cursor: default; }
+
+.wpb .wpb-secondary,
+.wpb .wpb-slots label span {
+	border-color: var(--wpb-border);
+	background: #fff;
+	color: var(--wpb-accent);
+}
+
+.wpb .wpb-slots-field {
+	min-width: 0;
+	margin: 16px 0 0;
+	padding: 0;
+	border: 0;
+}
+
+.wpb .wpb-slots-field legend { padding: 0; }
+
+.wpb .wpb-slots {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(min(100%, 90px), 1fr));
+	gap: 8px;
+}
+
+.wpb .wpb-slots label { position: relative; display: flex; }
+
+.wpb .wpb-slots input {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	margin: 0;
+	opacity: 0;
+}
+
+.wpb .wpb-slots label span {
+	width: 100%;
+	padding-inline: 5px;
+	font-size: .9rem;
+	font-variant-numeric: tabular-nums;
+}
+
+.wpb .wpb-slots input:checked + span {
+	border-color: var(--wpb-accent);
+	background: #dbede5;
+	box-shadow: inset 0 0 0 1px var(--wpb-accent);
+	color: #113d33;
+}
+
+.wpb :is(input, select, textarea, button, a, .wpb-result):focus-visible,
+.wpb .wpb-slots input:focus-visible + span {
+	outline: 2px solid var(--wpb-accent);
+	outline-offset: 2px;
+}
+
+.wpb .wpb-help {
+	margin: 0 0 12px;
+	color: var(--wpb-muted);
+	font-size: .86rem;
+	overflow-wrap: anywhere;
+	white-space: pre-line;
+}
+
+.wpb .wpb-help a { color: var(--wpb-accent); text-decoration: underline; }
+.wpb .wpb-message { margin: 0 0 10px; color: var(--wpb-muted); }
+.wpb .wpb-error { margin: 10px 0 0; color: #992d2a; }
+.wpb .wpb-footer > button { width: 100%; }
+
+.wpb .wpb-result dl { margin: 0 0 18px; }
+.wpb .wpb-result dl div { margin-bottom: 8px; }
+.wpb .wpb-result dt { color: var(--wpb-muted); font-size: .875rem; }
+.wpb .wpb-result dd { margin: 0; font-weight: 650; overflow-wrap: anywhere; }
+
+@media (max-width: 660px) {
+	.wpb .wpb-form { grid-template-columns: minmax(0, 1fr); }
+}
