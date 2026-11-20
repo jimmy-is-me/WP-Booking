@@ -9,7 +9,7 @@ use WP_Error;
 defined( 'ABSPATH' ) || exit;
 
 const SCHEMA_OPTION = 'wumetax_wpb_schema';
-const SCHEMA_VERSION = 1;
+const SCHEMA_VERSION = 2;
 
 function booking_table(): string {
 	global $wpdb;
@@ -35,6 +35,7 @@ function install_schema(): void {
 		payload_hash char(64) NOT NULL,
 		service_id char(32) NOT NULL,
 		service_name varchar(120) NOT NULL,
+		price int(10) unsigned DEFAULT NULL,
 		starts_at bigint(20) unsigned NOT NULL,
 		ends_at bigint(20) unsigned NOT NULL,
 		timezone varchar(64) NOT NULL,
@@ -43,16 +44,19 @@ function install_schema(): void {
 		customer_email varchar(254) NOT NULL,
 		customer_phone varchar(40) NOT NULL DEFAULT '',
 		note text NOT NULL,
+		admin_note text,
 		created_at bigint(20) unsigned NOT NULL,
 		updated_at bigint(20) unsigned NOT NULL,
 		PRIMARY KEY  (id),
 		UNIQUE KEY reference (reference),
 		UNIQUE KEY request_id (request_id),
 		KEY calendar (starts_at,status,ends_at),
+		KEY status_start (status,starts_at),
 		KEY customer_email (customer_email(191))
 	) {$charset};" );
 
-	if ( $table === $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $wpdb->esc_like( $table ) ) ) ) {
+	$columns = $wpdb->get_col( "SHOW COLUMNS FROM {$table}" );
+	if ( in_array( 'price', $columns, true ) && in_array( 'admin_note', $columns, true ) ) {
 		update_option( SCHEMA_OPTION, SCHEMA_VERSION, true );
 	}
 }
@@ -84,7 +88,8 @@ function overlaps( int $start, int $end ) {
 	// Service durations are capped at eight hours. Use a bounded index range.
 	$rows = $wpdb->get_results( $wpdb->prepare(
 		"SELECT starts_at, ends_at FROM {$table}
-		WHERE starts_at >= %d AND starts_at < %d AND ends_at > %d AND status IN ('pending', 'confirmed', 'completed')",
+		WHERE starts_at >= %d AND starts_at < %d AND ends_at > %d AND status IN ('pending', 'confirmed', 'completed')
+		ORDER BY starts_at ASC",
 		$start - 8 * HOUR_IN_SECONDS,
 		$end,
 		$start
@@ -103,7 +108,7 @@ function find_booking( int $id ): ?array {
 	return $wpdb->get_row( $wpdb->prepare( "SELECT * FROM {$table} WHERE id = %d", $id ), ARRAY_A );
 }
 
-function book( array $input, string $rate_key ) {
+function book( array $input, string $rate_key = '' ) {
 	$result = with_calendar_lock( static function ( string $lock ) use ( $input, $rate_key ) {
 		global $wpdb;
 		$table = booking_table();
@@ -133,15 +138,21 @@ function book( array $input, string $rate_key ) {
 		$start = $input['starts_at'];
 		$day = calendar_date( $now->setTimestamp( $start )->format( 'Y-m-d' ), $timezone );
 		$duration = (int) $service['duration'];
+		$price = isset( $service['price'] ) ? (int) $service['price'] : null;
+		if ( isset( $input['expected_duration'] ) && ( $duration !== $input['expected_duration'] || $price !== $input['expected_price'] ) ) {
+			return new WP_Error( 'wpb_service_changed', '服務費用或時間已變更，請重新選擇服務。', array( 'status' => 409 ) );
+		}
 		if ( ! $day || ! isset( scheduled_slots( $day, $duration, $config, $now )[ $start ] ) ) {
 			return unavailable();
 		}
 
-		$attempts = (int) get_transient( $rate_key );
-		if ( $attempts >= 8 ) {
-			return new WP_Error( 'wpb_rate_limit', '送出次數過多，請於 15 分鐘後再試。', array( 'status' => 429 ) );
+		if ( '' !== $rate_key ) {
+			$attempts = (int) get_transient( $rate_key );
+			if ( $attempts >= 8 ) {
+				return new WP_Error( 'wpb_rate_limit', '送出次數過多，請於 15 分鐘後再試。', array( 'status' => 429 ) );
+			}
+			set_transient( $rate_key, $attempts + 1, 15 * MINUTE_IN_SECONDS );
 		}
-		set_transient( $rate_key, $attempts + 1, 15 * MINUTE_IN_SECONDS );
 
 		$end = $start + $duration * MINUTE_IN_SECONDS;
 		$overlap = overlaps( $start, $end );
@@ -158,6 +169,7 @@ function book( array $input, string $rate_key ) {
 			'payload_hash'   => $hash,
 			'service_id'     => $input['service_id'],
 			'service_name'   => $service['name'],
+			'price'          => $price,
 			'starts_at'      => $start,
 			'ends_at'        => $end,
 			'timezone'       => $timezone->getName(),
@@ -171,13 +183,14 @@ function book( array $input, string $rate_key ) {
 		);
 
 		// wpdb can reconnect and retry a statement. The new connection must not write without the lock.
+		$values = array_replace( $booking, array( 'price' => $booking['price'] ?? -1 ) );
 		$written = $wpdb->query( $wpdb->prepare(
 			"INSERT INTO {$table}
-			(reference, request_id, payload_hash, service_id, service_name, starts_at, ends_at, timezone,
+			(reference, request_id, payload_hash, service_id, service_name, price, starts_at, ends_at, timezone,
 			status, customer_name, customer_email, customer_phone, note, created_at, updated_at)
-			SELECT %s, %s, %s, %s, %s, %d, %d, %s, %s, %s, %s, %s, %s, %d, %d
+			SELECT %s, %s, %s, %s, %s, NULLIF(%d, -1), %d, %d, %s, %s, %s, %s, %s, %s, %d, %d
 			WHERE IS_USED_LOCK(%s) = CONNECTION_ID()",
-			array_merge( array_values( $booking ), array( $lock ) )
+			array_merge( array_values( $values ), array( $lock ) )
 		) );
 		if ( 1 !== $written ) {
 			return storage_error();
@@ -247,10 +260,17 @@ function booking_time( array $booking ): string {
 		. ' (UTC' . wp_date( 'P', (int) $booking['starts_at'], $timezone ) . ')';
 }
 
+function booking_price( $price ): string {
+	return null === $price ? '未設定' : 'NT$ ' . number_format_i18n( (int) $price );
+}
+
 function send_notice( array $booking, string $admin_email = '' ): void {
 	$status = status_labels()[ $booking['status'] ];
 	$site = wp_specialchars_decode( get_bloginfo( 'name' ), ENT_QUOTES );
 	$summary = "預約編號：{$booking['reference']}\n服務：{$booking['service_name']}\n時段：" . booking_time( $booking ) . "\n狀態：{$status}";
+	if ( null !== ( $booking['price'] ?? null ) ) {
+		$summary .= "\n服務費用：" . booking_price( $booking['price'] );
+	}
 
 	if ( is_email( $booking['customer_email'] ) ) {
 		$message = "您好，{$booking['customer_name']}：\n\n{$summary}";

@@ -50,10 +50,12 @@ function export_personal_data( string $email, int $page = 1 ): array {
 				array( 'name' => '預約服務', 'value' => $row['service_name'] ),
 				array( 'name' => '預約時段', 'value' => booking_time( $row ) ),
 				array( 'name' => '預約狀態', 'value' => status_labels()[ $row['status'] ] ),
+				array( 'name' => '服務費用', 'value' => booking_price( $row['price'] ?? null ) ),
 				array( 'name' => '姓名', 'value' => $row['customer_name'] ),
 				array( 'name' => '電子郵件', 'value' => $row['customer_email'] ),
 				array( 'name' => '電話', 'value' => $row['customer_phone'] ),
 				array( 'name' => '備註', 'value' => $row['note'] ),
+				array( 'name' => '管理備註', 'value' => $row['admin_note'] ?? '' ),
 			),
 		);
 	}
@@ -79,6 +81,7 @@ function erase_personal_data( string $email ): array {
 			'customer_email' => '',
 			'customer_phone' => '',
 			'note'           => '',
+			'admin_note'     => null,
 			'payload_hash'   => '',
 			'updated_at'     => time(),
 		), array( 'id' => (int) $row['id'], 'customer_email' => $email ) );

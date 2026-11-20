@@ -7,7 +7,10 @@ use WP_Error;
 defined( 'ABSPATH' ) || exit;
 
 function admin_url_for( array $args = array() ): string {
-	return add_query_arg( array( 'page' => 'wp-booking' ) + $args, admin_url( 'admin.php' ) );
+	$encoded = array_map( static function ( $value ): string {
+		return rawurlencode( (string) $value );
+	}, $args );
+	return add_query_arg( array( 'page' => 'wp-booking' ) + $encoded, admin_url( 'admin.php' ) );
 }
 
 function register_admin(): void {
@@ -15,6 +18,8 @@ function register_admin(): void {
 	if ( $screen ) {
 		add_action( 'load-' . $screen, static function (): void {
 			wp_enqueue_style( 'wp-booking-admin', plugins_url( 'assets/admin.css', FILE ), array(), VERSION );
+			wp_enqueue_style( 'wp-booking' );
+			wp_enqueue_script( 'wp-booking-admin', plugins_url( 'assets/admin.js', FILE ), array(), VERSION, true );
 		} );
 	}
 }
@@ -28,17 +33,32 @@ function render_admin(): void {
 		return;
 	}
 
-	$tabs = array( 'bookings' => '預約一覽', 'services' => '服務項目', 'settings' => '排程設定' );
+	$tabs = array(
+		'overview' => '總覽儀表板',
+		'bookings' => '預約訂單列表',
+		'calendar' => '行事曆排程',
+		'services' => '服務項目管理',
+		'settings' => '排程與系統設定',
+	);
 	$tab = read_field( $_GET, 'tab' );
-	$tab = isset( $tabs[ $tab ] ) ? $tab : 'bookings';
+	$has_filter = array_intersect( array( 'q', 'status', 'from', 'to', 'paged' ), array_keys( $_GET ) );
+	$tab = isset( $tabs[ $tab ] ) ? $tab : ( $has_filter ? 'bookings' : 'overview' );
 	?>
 	<div class="wrap wpb-admin">
-		<h1>WP Booking 預約管理</h1>
-		<nav class="nav-tab-wrapper" aria-label="預約管理選單">
+		<header class="wpb-admin-header">
+			<div>
+				<span class="wpb-admin-brand"><?php echo wpb_icon( 'calendar' ); ?> WP Booking</span>
+				<h1>預約管理儀表板</h1>
+			</div>
+			<?php if ( in_array( $tab, array( 'overview', 'bookings' ), true ) ) : ?>
+				<button class="wpb-admin-btn wpb-admin-primary" type="button" data-wpb-dialog="wpb-create-booking">＋ 新增預約</button>
+			<?php endif; ?>
+		</header>
+		<nav class="wpb-admin-tabs" aria-label="預約管理選單">
 			<?php foreach ( $tabs as $key => $label ) : ?>
-				<a class="nav-tab<?php echo $key === $tab ? ' nav-tab-active' : ''; ?>"
+				<a
 					<?php echo $key === $tab ? 'aria-current="page"' : ''; ?>
-					href="<?php echo esc_url( admin_url_for( array( 'tab' => $key ) ) ); ?>"><?php echo esc_html( $label ); ?></a>
+					href="<?php echo esc_url( admin_url_for( array( 'tab' => $key ) ) ); ?>"><?php echo wpb_icon( $key ); ?><?php echo esc_html( $label ); ?></a>
 			<?php endforeach; ?>
 		</nav>
 		<?php if ( '1' === read_field( $_GET, 'wpb_saved' ) ) : ?>
@@ -52,8 +72,15 @@ function render_admin(): void {
 			render_services();
 		} elseif ( 'settings' === $tab ) {
 			render_settings();
-		} else {
+		} elseif ( 'calendar' === $tab ) {
+			render_admin_calendar();
+		} elseif ( 'bookings' === $tab ) {
 			render_bookings();
+		} else {
+			render_admin_overview();
+		}
+		if ( in_array( $tab, array( 'overview', 'bookings' ), true ) ) {
+			render_quick_booking();
 		}
 		?>
 	</div>
@@ -90,6 +117,12 @@ function handle_admin(): void {
 			check_admin_referer( 'wpb-booking-' . $id );
 			$result = change_status( $id, read_field( $_POST, 'status' ) );
 			break;
+		case 'note':
+			$tab = 'bookings';
+			$id = (int) read_field( $_POST, 'booking_id' );
+			check_admin_referer( 'wpb-note-' . $id );
+			$result = save_admin_note( $id, read_field( $_POST, 'admin_note' ) );
+			break;
 		default:
 			wp_die( '無法辨識管理操作。', '', array( 'response' => 400 ) );
 	}
@@ -97,22 +130,40 @@ function handle_admin(): void {
 		wp_die( esc_html( $result->get_error_message() ), '無法儲存', array( 'response' => 400, 'back_link' => true ) );
 	}
 
-	$target = 'status' === $operation && wp_get_referer() ? wp_get_referer() : admin_url_for( array( 'tab' => $tab ) );
+	$target = in_array( $operation, array( 'status', 'note' ), true ) && wp_get_referer() ? wp_get_referer() : admin_url_for( array( 'tab' => $tab ) );
 	wp_safe_redirect( add_query_arg( 'wpb_saved', '1', $target ), 303 );
 	exit;
+}
+
+function save_admin_note( int $id, string $note ) {
+	global $wpdb;
+	$note = sanitize_textarea_field( $note );
+	if ( text_size( $note ) > 500 ) {
+		return new WP_Error( 'wpb_note', '管理備註最多 500 字。' );
+	}
+	$booking = find_booking( $id );
+	if ( ! $booking || '' === $booking['customer_email'] ) {
+		return new WP_Error( 'wpb_note_booking', '這筆預約目前無法加註。' );
+	}
+	$updated = $wpdb->update( booking_table(), array( 'admin_note' => $note ), array( 'id' => $id, 'customer_email' => $booking['customer_email'] ) );
+	return false === $updated ? storage_error() : true;
 }
 
 function save_service( string $id, array $posted ) {
 	$name = sanitize_text_field( read_field( $posted, 'name' ) );
 	$description = sanitize_textarea_field( read_field( $posted, 'description' ) );
 	$duration = read_field( $posted, 'duration' );
+	$price = read_field( $posted, 'price' );
 	if ( '' === $name || text_size( $name ) > 120 || text_size( $description ) > 500
 		|| ! ctype_digit( $duration ) || (int) $duration < STEP_MINUTES || (int) $duration > 480
 		|| (int) $duration % STEP_MINUTES ) {
 		return new WP_Error( 'wpb_service', '請確認服務名稱、簡介及所需時間。所需時間為 15 至 480 分鐘，須為 15 的倍數。' );
 	}
+	if ( '' !== $price && ( ! ctype_digit( $price ) || (int) $price > 9999999 ) ) {
+		return new WP_Error( 'wpb_service_price', '服務費用須為 0 至 9,999,999 元的整數。' );
+	}
 
-	return with_calendar_lock( static function () use ( $id, $name, $description, $duration, $posted ) {
+	return with_calendar_lock( static function () use ( $id, $name, $description, $duration, $price, $posted ) {
 		$original = services();
 		$items = $original;
 		if ( '' !== $id && ! isset( $items[ $id ] ) ) {
@@ -126,6 +177,7 @@ function save_service( string $id, array $posted ) {
 			'name'        => $name,
 			'description' => $description,
 			'duration'    => (int) $duration,
+			'price'       => '' === $price ? null : (int) $price,
 			'enabled'     => '1' === read_field( $posted, 'enabled' ),
 		);
 		return $items === $original || update_option( SERVICES_OPTION, $items, false ) ? true : storage_error();
@@ -133,29 +185,41 @@ function save_service( string $id, array $posted ) {
 }
 
 function render_services(): void {
+	$items = services();
 	?>
-	<p>新增服務後，將 <code>[wp_booking]</code> 貼入頁面的短代碼區塊，即可顯示預約表單。</p>
-	<p>所有服務共用一份行事曆。停用服務會從前台隱藏，既有預約仍可管理。</p>
+	<div class="wpb-admin-section-head">
+		<div><h2>服務項目管理</h2><p>所有服務共用一份行事曆。</p></div>
+		<button class="wpb-admin-btn wpb-admin-primary" type="button" data-wpb-dialog="wpb-new-service">＋ 新增服務</button>
+	</div>
 	<div class="wpb-admin-cards">
-		<?php render_service_form( '', array( 'name' => '', 'description' => '', 'duration' => 60, 'enabled' => true ) ); ?>
-		<?php foreach ( services() as $id => $service ) : ?>
+		<?php if ( ! $items ) : ?><div class="wpb-admin-card wpb-admin-empty">目前還沒有服務，請先新增一項服務。</div><?php endif; ?>
+		<?php foreach ( $items as $id => $service ) : ?>
 			<?php render_service_form( (string) $id, $service ); ?>
 		<?php endforeach; ?>
 	</div>
+	<dialog class="wpb-admin-dialog" id="wpb-new-service" aria-label="新增服務">
+		<button class="wpb-admin-close" type="button" data-wpb-dismiss aria-label="關閉">×</button>
+		<?php render_service_form( '', array( 'name' => '', 'description' => '', 'duration' => 60, 'enabled' => true ) ); ?>
+	</dialog>
 	<?php
 }
 
 function render_service_form( string $id, array $service ): void {
 	?>
 	<form class="wpb-admin-card" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" method="post">
-		<h2><?php echo esc_html( '' === $id ? '新增服務' : $service['name'] ); ?></h2>
+		<div class="wpb-admin-card-heading">
+			<span class="wpb-admin-icon"><?php echo wpb_icon( 'services' ); ?></span>
+			<h2><?php echo esc_html( '' === $id ? '新增服務' : $service['name'] ); ?></h2>
+			<?php if ( '' !== $id ) : ?><span class="wpb-admin-status <?php echo $service['enabled'] ? 'wpb-admin-completed' : ''; ?>"><?php echo $service['enabled'] ? '開放中' : '已停用'; ?></span><?php endif; ?>
+		</div>
 		<?php admin_form_fields( 'services', 'wpb-service-' . $id ); ?>
 		<input type="hidden" name="service_id" value="<?php echo esc_attr( $id ); ?>">
 		<label>服務名稱<input type="text" name="name" maxlength="120" required value="<?php echo esc_attr( $service['name'] ); ?>"></label>
 		<label>服務簡介（選填）<textarea name="description" rows="3" maxlength="500"><?php echo esc_textarea( $service['description'] ); ?></textarea></label>
 		<label>所需時間（分鐘）<input type="number" name="duration" required min="15" max="480" step="15" value="<?php echo esc_attr( $service['duration'] ); ?>"></label>
+		<label>服務費用（NT$，選填）<input type="number" name="price" min="0" max="9999999" step="1" value="<?php echo esc_attr( $service['price'] ?? '' ); ?>"></label>
 		<label><input type="checkbox" name="enabled" value="1" <?php checked( $service['enabled'] ); ?>>開放預約</label>
-		<?php submit_button( '' === $id ? '新增服務' : '儲存服務', 'primary', 'submit', false ); ?>
+		<button class="wpb-admin-btn wpb-admin-primary" type="submit"><?php echo '' === $id ? '新增服務' : '儲存服務'; ?></button>
 	</form>
 	<?php
 }
@@ -213,29 +277,38 @@ function render_settings(): void {
 	$config = settings();
 	$weekdays = array( '星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六' );
 	?>
-	<p>排程使用 WordPress 的網站時區（<?php echo esc_html( wp_timezone_string() ); ?>）。</p>
+	<div class="wpb-admin-section-head"><div><h2>排程與系統設定</h2>
+		<p>排程使用網站時區 <?php echo esc_html( wp_timezone_string() ); ?>。</p></div></div>
 	<form class="wpb-admin-settings" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" method="post">
 		<?php admin_form_fields( 'settings', 'wpb-settings' ); ?>
 		<div class="wpb-admin-cards">
 			<section class="wpb-admin-card">
 				<h2>每週營業時間</h2>
-				<p>每段使用 15 分鐘刻度，例 <code>09:00-12:00, 13:00-18:00</code>。休息日留空。</p>
+				<p>每段使用 15 分鐘刻度，可設定多段時段。休息日留空。</p>
 				<?php foreach ( $weekdays as $number => $label ) : ?>
 					<?php
 					$hours = array_map( static function ( array $range ): string {
 						return clock_label( $range[0] ) . '-' . clock_label( $range[1] );
 					}, $config['week'][ $number ] );
 					?>
-					<label><?php echo esc_html( $label ); ?>
-						<input type="text" name="hours[<?php echo esc_attr( $number ); ?>]" maxlength="300" value="<?php echo esc_attr( implode( ', ', $hours ) ); ?>">
-					</label>
+					<div class="wpb-admin-hours">
+						<label><?php echo esc_html( $label ); ?>
+							<input type="text" name="hours[<?php echo esc_attr( $number ); ?>]" maxlength="300" placeholder="09:00-12:00, 13:00-18:00" value="<?php echo esc_attr( implode( ', ', $hours ) ); ?>">
+						</label>
+						<button class="wpb-admin-btn" data-wpb-hours type="button" aria-label="<?php echo esc_attr( $label . '營業' ); ?>" aria-pressed="<?php echo $hours ? 'true' : 'false'; ?>"><?php echo $hours ? '營業' : '店休'; ?></button>
+					</div>
 				<?php endforeach; ?>
 			</section>
 			<section class="wpb-admin-card">
-				<h2>預約規則</h2>
+				<h2>特殊公休日</h2>
+				<div class="wpb-admin-closure-tools"><input type="date" data-wpb-closure-date aria-label="公休日期"><button type="button" class="wpb-admin-btn" data-wpb-closure-add>加入公休</button></div>
+				<ul class="wpb-admin-closures" data-wpb-closures aria-label="已設定的公休日"></ul>
 				<label>休假日期（每行一筆，格式 YYYY-MM-DD）
-					<textarea name="closed" rows="5" maxlength="4096"><?php echo esc_textarea( implode( "\n", $config['closed'] ) ); ?></textarea>
+					<textarea name="closed" data-wpb-closure-text rows="3" maxlength="4096"><?php echo esc_textarea( implode( "\n", $config['closed'] ) ); ?></textarea>
 				</label>
+			</section>
+			<section class="wpb-admin-card">
+				<h2>預約規則</h2>
 				<label>至少提前預約（分鐘）
 					<input type="number" name="lead_minutes" min="0" max="10080" required value="<?php echo esc_attr( $config['lead_minutes'] ); ?>">
 				</label>
@@ -249,8 +322,12 @@ function render_settings(): void {
 				<p>採人工確認時，待確認的預約會先保留時段。</p>
 			</section>
 		</div>
-		<?php submit_button( '儲存排程設定' ); ?>
+		<p><button type="submit" class="wpb-admin-btn wpb-admin-primary">儲存排程設定</button></p>
 	</form>
+	<section class="wpb-admin-shortcode">
+		<div><h2>把預約表單加到頁面</h2><p>在 Gutenberg 的「短代碼」區塊貼上這段短代碼。</p></div>
+		<div><code>[wp_booking]</code> <button class="wpb-admin-btn" data-wpb-copy type="button">複製短代碼</button></div>
+	</section>
 	<?php
 }
 
@@ -302,9 +379,18 @@ function render_bookings(): void {
 		array_merge( $args, array( $per_page, ( $page - 1 ) * $per_page ) )
 	), ARRAY_A );
 	?>
-	<p>在頁面加入 <code>[wp_booking]</code> 開啟前台預約。</p>
+	<div class="wpb-admin-section-head"><h2>預約訂單列表</h2></div>
+	<div class="wpb-admin-card wpb-admin-list-card">
+	<nav class="wpb-admin-facets" aria-label="依預約狀態查看">
+		<?php foreach ( array( '' => '全部' ) + $states as $value => $name ) : ?>
+			<?php $facet = array_filter( array_replace( $filters, array( 'status' => $value ) ), 'strlen' ); ?>
+			<a class="wpb-admin-btn" <?php echo $status === $value ? 'aria-current="page"' : ''; ?>
+				href="<?php echo esc_url( admin_url_for( array( 'tab' => 'bookings' ) + $facet ) ); ?>"><?php echo esc_html( $name ); ?></a>
+		<?php endforeach; ?>
+	</nav>
 	<form class="wpb-admin-filters" method="get" action="<?php echo esc_url( admin_url( 'admin.php' ) ); ?>">
 		<input type="hidden" name="page" value="wp-booking">
+		<input type="hidden" name="tab" value="bookings">
 		<label>搜尋預約<input type="search" name="q" maxlength="100" placeholder="編號、姓名或電子郵件" value="<?php echo esc_attr( $query ); ?>"></label>
 		<label>狀態<select name="status">
 			<option value="">全部狀態</option>
@@ -314,37 +400,28 @@ function render_bookings(): void {
 		</select></label>
 		<label>起始日期<input type="date" name="from" value="<?php echo esc_attr( $filters['from'] ?? '' ); ?>"></label>
 		<label>結束日期<input type="date" name="to" value="<?php echo esc_attr( $filters['to'] ?? '' ); ?>"></label>
-		<?php submit_button( '篩選', 'secondary', '', false ); ?>
+		<button class="wpb-admin-btn" type="submit">篩選</button>
 		<?php if ( $filters ) : ?>
-			<a href="<?php echo esc_url( admin_url_for() ); ?>">清除篩選</a>
+			<a href="<?php echo esc_url( admin_url_for( array( 'tab' => 'bookings' ) ) ); ?>">清除篩選</a>
 		<?php endif; ?>
 	</form>
 	<div class="wpb-admin-overflow">
 		<table class="widefat striped">
-			<thead><tr><th>預約編號</th><th>服務</th><th>預約時段</th><th>聯絡資料</th><th>狀態</th><th>操作</th></tr></thead>
+			<thead><tr><th>預約客戶</th><th>服務項目</th><th>狀態</th><th>服務費用</th><th>預約時段</th><th>操作</th></tr></thead>
 			<tbody>
 				<?php if ( ! $rows ) : ?>
 					<tr><td colspan="6"><?php echo esc_html( $wpdb->last_error ? '無法讀取預約，請稍後再試。' : '目前沒有符合條件的預約。' ); ?></td></tr>
 				<?php endif; ?>
 				<?php foreach ( $rows as $row ) : ?>
 					<tr>
-						<td><strong><?php echo esc_html( $row['reference'] ); ?></strong></td>
+						<td><strong><?php echo esc_html( $row['customer_name'] ?: '匿名預約' ); ?></strong><small><?php echo esc_html( $row['reference'] ); ?></small></td>
 						<td><?php echo esc_html( $row['service_name'] ); ?></td>
+						<td><span class="wpb-admin-status wpb-admin-<?php echo esc_attr( $row['status'] ); ?>"><?php echo esc_html( $states[ $row['status'] ] ?? $row['status'] ); ?></span></td>
+						<td><?php echo esc_html( booking_price( $row['price'] ?? null ) ); ?></td>
 						<td><?php echo esc_html( booking_time( $row ) ); ?></td>
 						<td>
-							<?php echo esc_html( $row['customer_name'] ); ?>
-							<?php if ( $row['customer_email'] || $row['customer_phone'] || $row['note'] ) : ?>
-								<details><summary>聯絡方式與備註</summary>
-									<?php foreach ( array( 'customer_email', 'customer_phone', 'note' ) as $key ) : ?>
-										<?php if ( '' !== $row[ $key ] ) : ?>
-											<div><?php echo nl2br( esc_html( $row[ $key ] ) ); ?></div>
-										<?php endif; ?>
-									<?php endforeach; ?>
-								</details>
-							<?php endif; ?>
+							<button class="wpb-admin-btn" type="button" data-wpb-dialog="wpb-detail-<?php echo esc_attr( $row['id'] ); ?>" aria-label="<?php echo esc_attr( '查看預約 ' . $row['reference'] ); ?>">查看</button>
 						</td>
-						<td><span class="wpb-admin-status wpb-admin-<?php echo esc_attr( $row['status'] ); ?>"><?php echo esc_html( $states[ $row['status'] ] ?? $row['status'] ); ?></span></td>
-						<td><?php render_status_form( $row, $states ); ?></td>
 					</tr>
 				<?php endforeach; ?>
 			</tbody>
@@ -353,12 +430,49 @@ function render_bookings(): void {
 	<div class="wpb-admin-pages">
 		<span><?php echo esc_html( sprintf( '共 %d 筆預約，第 %d／%d 頁', $total, $page, $max_page ) ); ?></span>
 		<?php if ( $page > 1 ) : ?>
-			<a class="button" href="<?php echo esc_url( admin_url_for( array( 'paged' => $page - 1 ) + $filters ) ); ?>">上一頁</a>
+			<a class="wpb-admin-btn" href="<?php echo esc_url( admin_url_for( array( 'tab' => 'bookings', 'paged' => $page - 1 ) + $filters ) ); ?>">上一頁</a>
 		<?php endif; ?>
 		<?php if ( $page < $max_page ) : ?>
-			<a class="button" href="<?php echo esc_url( admin_url_for( array( 'paged' => $page + 1 ) + $filters ) ); ?>">下一頁</a>
+			<a class="wpb-admin-btn" href="<?php echo esc_url( admin_url_for( array( 'tab' => 'bookings', 'paged' => $page + 1 ) + $filters ) ); ?>">下一頁</a>
 		<?php endif; ?>
 	</div>
+	</div>
+	<?php foreach ( $rows as $row ) : ?>
+		<?php render_booking_detail( $row, $states ); ?>
+	<?php endforeach; ?>
+	<?php
+}
+
+function render_booking_detail( array $booking, array $states ): void {
+	$lines = array(
+		'預約時段' => booking_time( $booking ),
+		'服務費用' => booking_price( $booking['price'] ?? null ),
+		'客戶姓名' => $booking['customer_name'],
+		'電子郵件' => $booking['customer_email'],
+		'聯絡電話' => $booking['customer_phone'],
+		'客戶備註' => $booking['note'],
+	);
+	?>
+	<dialog class="wpb-admin-dialog wpb-admin-drawer" id="wpb-detail-<?php echo esc_attr( $booking['id'] ); ?>" aria-label="預約訂單詳情">
+		<button class="wpb-admin-close" type="button" data-wpb-dismiss aria-label="關閉">×</button>
+		<span class="wpb-admin-brand"><?php echo esc_html( $booking['reference'] ); ?></span>
+		<h2><?php echo esc_html( $booking['service_name'] ); ?></h2>
+		<span class="wpb-admin-status wpb-admin-<?php echo esc_attr( $booking['status'] ); ?>"><?php echo esc_html( $states[ $booking['status'] ] ); ?></span>
+		<dl>
+			<?php foreach ( $lines as $label => $value ) : ?>
+				<div><dt><?php echo esc_html( $label ); ?></dt><dd><?php echo nl2br( esc_html( '' === $value ? '—' : $value ) ); ?></dd></div>
+			<?php endforeach; ?>
+		</dl>
+		<?php render_status_form( $booking, $states ); ?>
+		<?php if ( '' !== $booking['customer_email'] ) : ?>
+			<form class="wpb-admin-note" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" method="post">
+				<?php admin_form_fields( 'note', 'wpb-note-' . $booking['id'] ); ?>
+				<input type="hidden" name="booking_id" value="<?php echo esc_attr( $booking['id'] ); ?>">
+				<label>管理員內部備註<textarea name="admin_note" maxlength="500" rows="3"><?php echo esc_textarea( $booking['admin_note'] ?? '' ); ?></textarea></label>
+				<button class="wpb-admin-btn" type="submit">儲存備註</button>
+			</form>
+		<?php endif; ?>
+	</dialog>
 	<?php
 }
 
@@ -377,7 +491,7 @@ function render_status_form( array $booking, array $labels ): void {
 				<option value="<?php echo esc_attr( $status ); ?>"><?php echo esc_html( $labels[ $status ] ); ?></option>
 			<?php endforeach; ?>
 		</select>
-		<?php submit_button( '套用', 'secondary small', '', false ); ?>
+		<button class="wpb-admin-btn wpb-admin-primary" type="submit">更新狀態</button>
 	</form>
 	<?php
 }
