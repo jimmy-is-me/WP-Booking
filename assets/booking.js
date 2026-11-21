@@ -48,7 +48,7 @@
 		const contactNext = part('contact-next');
 		const dateNext = part('date-next');
 		let phase = 1;
-		let service, limits, month, date, slot, monthRequest, slotRequest, previousRequest;
+		let service, defaults, limits, month, date, slot, monthRequest, slotRequest, previousRequest;
 		let submitting = false;
 
 		function message(name, value = '') {
@@ -108,6 +108,7 @@
 				if (service?.id !== entry.id) {
 					monthRequest?.abort();
 					service = entry;
+					limits = service.dates || defaults;
 					month = undefined;
 					date = undefined;
 					clearSlots();
@@ -127,7 +128,7 @@
 					message('calendar-message', '目前沒有開放預約的服務。');
 					return;
 				}
-				limits = calendar.dates;
+				defaults = calendar.dates;
 				service = undefined;
 				month = undefined;
 				date = undefined;
@@ -302,7 +303,11 @@
 				}
 				part('result-price-row').hidden = !confirmation.price;
 				message('result-price', confirmation.price || '');
-				message('result-message', confirmation.status === '待確認' ? '預約已登記，請等候店家確認。' : '預約已登記，請依預約時段出席。');
+				const descriptions = {
+					待確認: '預約已登記，請等候店家確認。',
+					已確認: '預約已登記，請依預約時段出席。',
+				};
+				message('result-message', descriptions[confirmation.status] || '請查看目前的預約狀態。');
 				form.reset();
 				previousRequest = undefined;
 				showPhase(4);

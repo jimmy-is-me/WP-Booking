@@ -13,6 +13,7 @@ defined( 'ABSPATH' ) || exit;
 const API = 'wp-booking/v1';
 
 function register_routes(): void {
+	register_management_routes();
 	register_rest_route( API, '/calendar', array(
 		'methods'             => WP_REST_Server::READABLE,
 		'callback'            => __NAMESPACE__ . '\\calendar_response',
@@ -53,6 +54,7 @@ function calendar_response(): array {
 	$timezone = wp_timezone();
 	$now = new DateTimeImmutable( 'now', $timezone );
 	$available = array();
+	$config = settings();
 	foreach ( services() as $id => $service ) {
 		if ( $service['enabled'] ) {
 			$available[] = array(
@@ -62,12 +64,13 @@ function calendar_response(): array {
 				'duration'     => (int) $service['duration'],
 				'price'        => isset( $service['price'] ) ? booking_price( $service['price'] ) : null,
 				'price_amount' => isset( $service['price'] ) ? (int) $service['price'] : null,
+				'dates'        => calendar_limits( service_schedule( $config, $service ), $now ),
 			);
 		}
 	}
 	return array(
 		'services' => $available,
-		'dates'    => calendar_limits( settings(), $now ),
+		'dates'    => calendar_limits( $config, $now ),
 		'timezone' => $timezone->getName(),
 	);
 }
@@ -82,33 +85,38 @@ function slots_response( WP_REST_Request $request ) {
 		return new WP_Error( 'wpb_selection', '請選擇有效的服務與日期。', array( 'status' => 400 ) );
 	}
 
-	$now = new DateTimeImmutable( 'now', $timezone );
-	$duration = (int) $service['duration'] * MINUTE_IN_SECONDS;
-	$starts = scheduled_slots( $day, (int) $service['duration'], settings(), $now );
+	return slots_for_day( $day, (int) $service['duration'], service_schedule( settings(), $service ) );
+}
+
+function slots_for_day( DateTimeImmutable $day, int $duration, array $config, int $exclude = 0 ) {
+	$now = new DateTimeImmutable( 'now', $day->getTimezone() );
+	$starts = scheduled_slots( $day, $duration, $config, $now );
 	if ( ! $starts ) {
 		return array( 'slots' => array() );
 	}
 
-	$busy = overlaps( array_key_first( $starts ), array_key_last( $starts ) + $duration );
+	$before = $config['buffer_before'] * MINUTE_IN_SECONDS;
+	$after = ( $duration + $config['buffer_after'] ) * MINUTE_IN_SECONDS;
+	$busy = overlaps( array_key_first( $starts ) - $before, array_key_last( $starts ) + $after, $exclude );
 	if ( is_wp_error( $busy ) ) {
 		return $busy;
 	}
 
 	$slots = array();
-	foreach ( free_starts( $starts, $duration, $busy ) as $timestamp => $label ) {
+	foreach ( free_starts( $starts, $after, $busy, $before ) as $timestamp => $label ) {
 		$slots[] = array( 'start' => $timestamp, 'label' => $label );
 	}
 	return array( 'slots' => $slots );
 }
 
 /** Filter chronological starts against chronological shared calendar bookings. */
-function free_starts( array $starts, int $duration, array $busy ): array {
+function free_starts( array $starts, int $end_offset, array $busy, int $before = 0 ): array {
 	$index = 0;
 	foreach ( $starts as $timestamp => $label ) {
-		while ( isset( $busy[ $index ] ) && (int) $busy[ $index ]['ends_at'] <= $timestamp ) {
+		while ( isset( $busy[ $index ] ) && (int) $busy[ $index ]['ends_at'] <= $timestamp - $before ) {
 			++$index;
 		}
-		if ( isset( $busy[ $index ] ) && $timestamp + $duration > (int) $busy[ $index ]['starts_at'] ) {
+		if ( isset( $busy[ $index ] ) && $timestamp + $end_offset > (int) $busy[ $index ]['starts_at'] ) {
 			unset( $starts[ $timestamp ] );
 		}
 	}
@@ -122,7 +130,7 @@ function month_response( WP_REST_Request $request ) {
 	$timezone = wp_timezone();
 	$first = is_string( $month ) ? calendar_date( $month . '-01', $timezone ) : null;
 	$service = is_string( $id ) ? services()[ $id ] ?? null : null;
-	$config = settings();
+	$config = service_schedule( settings(), $service ?? array() );
 	$now = new DateTimeImmutable( 'now', $timezone );
 	$limits = calendar_limits( $config, $now );
 	if ( ! $first || ! $service || ! $service['enabled']
@@ -140,7 +148,7 @@ function month_response( WP_REST_Request $request ) {
 			$days[ $date ] = 'outside';
 			continue;
 		}
-		if ( in_array( $date, $config['closed'], true ) || empty( $config['week'][ (int) $day->format( 'w' ) ] ) ) {
+		if ( ! opening_hours( $day, $config ) ) {
 			$days[ $date ] = 'closed';
 			continue;
 		}
@@ -151,12 +159,13 @@ function month_response( WP_REST_Request $request ) {
 		}
 	}
 	if ( $starts ) {
-		$seconds = $duration * MINUTE_IN_SECONDS;
-		$busy = overlaps( array_key_first( $starts ), array_key_last( $starts ) + $seconds );
+		$before = $config['buffer_before'] * MINUTE_IN_SECONDS;
+		$after = ( $duration + $config['buffer_after'] ) * MINUTE_IN_SECONDS;
+		$busy = overlaps( array_key_first( $starts ) - $before, array_key_last( $starts ) + $after );
 		if ( is_wp_error( $busy ) ) {
 			return $busy;
 		}
-		foreach ( free_starts( $starts, $seconds, $busy ) as $date ) {
+		foreach ( free_starts( $starts, $after, $busy, $before ) as $date ) {
 			$days[ $date ] = 'available';
 		}
 	}
@@ -252,10 +261,11 @@ function create_booking_response( WP_REST_Request $request, string $rate_key = '
 	}
 
 	$booking = $result['booking'];
+	$status = pending_expired( $booking, time() ) ? 'expired' : $booking['status'];
 	return new WP_REST_Response( array(
 		'reference' => $booking['reference'],
 		'service'   => $booking['service_name'],
-		'status'    => status_labels()[ $booking['status'] ],
+		'status'    => status_labels()[ $status ],
 		'time'      => booking_time( $booking ),
 		'price'     => isset( $booking['price'] ) ? booking_price( $booking['price'] ) : null,
 	), $result['created'] ? 201 : 200 );
@@ -394,9 +404,16 @@ function booking_wizard( bool $admin = false, string $selected_date = '' ): stri
 				<?php endif; ?>
 			</div>
 		</div>
+		<?php if ( ! $admin ) : ?>
+			<?php powered_by(); ?>
+		<?php endif; ?>
 	</section>
 	<?php
 	return ob_get_clean();
+}
+
+function powered_by(): void {
+	echo '<footer class="wpb-credit">Powered by <a href="https://wumetax.com/" rel="noopener">wumetax</a></footer>';
 }
 
 function wpb_icon( string $name ): string {

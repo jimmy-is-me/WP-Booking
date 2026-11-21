@@ -14,18 +14,21 @@ function render_admin_overview(): void {
 	$month = $today->modify( 'first day of this month' );
 	$table = booking_table();
 	$daily = $wpdb->get_var( $wpdb->prepare(
-		"SELECT COUNT(*) FROM {$table} WHERE starts_at >= %d AND starts_at < %d AND status <> 'cancelled'",
-		$today->getTimestamp(), $today->modify( 'tomorrow' )->getTimestamp()
+		"SELECT COUNT(*) FROM {$table} WHERE starts_at >= %d AND starts_at < %d AND status NOT IN ('cancelled','expired')
+		AND (status <> 'pending' OR hold_until = 0 OR hold_until > %d)",
+		$today->getTimestamp(), $today->modify( 'tomorrow' )->getTimestamp(), $now->getTimestamp()
 	) );
-	$pending = $wpdb->get_var( "SELECT COUNT(*) FROM {$table} WHERE status = 'pending'" );
+	$pending = $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$table} WHERE status = 'pending' AND (hold_until = 0 OR hold_until > %d)", $now->getTimestamp() ) );
 	$estimate = $wpdb->get_var( $wpdb->prepare(
-		"SELECT SUM(price) FROM {$table} WHERE starts_at >= %d AND starts_at < %d AND status <> 'cancelled'",
-		$month->getTimestamp(), $month->modify( 'first day of next month' )->getTimestamp()
+		"SELECT SUM(price) FROM {$table} WHERE starts_at >= %d AND starts_at < %d AND status NOT IN ('cancelled','expired','no_show')
+		AND (status <> 'pending' OR hold_until = 0 OR hold_until > %d)",
+		$month->getTimestamp(), $month->modify( 'first day of next month' )->getTimestamp(), $now->getTimestamp()
 	) );
 	$upcoming = $wpdb->get_results( $wpdb->prepare(
-		"SELECT reference, service_name, starts_at, ends_at, timezone, status, customer_name
-		FROM {$table} WHERE starts_at >= %d AND status IN ('pending', 'confirmed') ORDER BY starts_at, id LIMIT 5",
-		$now->getTimestamp()
+		"SELECT reference, service_name, starts_at, ends_at, timezone, status, customer_name, hold_until
+		FROM {$table} WHERE starts_at >= %d AND (status = 'confirmed' OR (status = 'pending' AND (hold_until = 0 OR hold_until > %d)))
+		ORDER BY starts_at, id LIMIT 5",
+		$now->getTimestamp(), $now->getTimestamp()
 	), ARRAY_A );
 	?>
 	<div class="wpb-admin-metrics">
@@ -42,7 +45,7 @@ function render_admin_overview(): void {
 		<div class="wpb-admin-card wpb-admin-metric">
 			<span class="wpb-admin-icon"><?php echo wpb_icon( 'overview' ); ?></span>
 			<h2>本月預估營收</h2><p><?php echo esc_html( null === $estimate ? '—' : booking_price( $estimate ) ); ?></p>
-			<small>加總本月未取消且已記錄服務費的預約</small>
+			<small>加總本月有效預約的服務費，排除取消、逾時與未到場</small>
 		</div>
 	</div>
 	<section class="wpb-admin-card">
@@ -72,8 +75,9 @@ function render_admin_calendar(): void {
 	$config = settings();
 	$table = booking_table();
 	$starts = $wpdb->get_col( $wpdb->prepare(
-		"SELECT starts_at FROM {$table} WHERE starts_at >= %d AND starts_at < %d AND status <> 'cancelled'",
-		$month->getTimestamp(), $end->getTimestamp()
+		"SELECT starts_at FROM {$table} WHERE starts_at >= %d AND starts_at < %d AND status NOT IN ('cancelled','expired')
+		AND (status <> 'pending' OR hold_until = 0 OR hold_until > %d)",
+		$month->getTimestamp(), $end->getTimestamp(), time()
 	) );
 	$counts = array();
 	foreach ( $starts as $start ) {
@@ -81,7 +85,7 @@ function render_admin_calendar(): void {
 		$counts[ $date ] = ( $counts[ $date ] ?? 0 ) + 1;
 	}
 	$rows = $wpdb->get_results( $wpdb->prepare(
-		"SELECT reference, service_name, starts_at, ends_at, timezone, status, customer_name
+		"SELECT reference, service_name, starts_at, ends_at, timezone, status, customer_name, hold_until
 		FROM {$table} WHERE starts_at >= %d AND starts_at < %d ORDER BY starts_at, id",
 		$selected->getTimestamp(), $selected->modify( 'tomorrow' )->getTimestamp()
 	), ARRAY_A );
@@ -105,7 +109,7 @@ function render_admin_calendar(): void {
 					<?php
 					$date = $day->format( 'Y-m-d' );
 					$count = $counts[ $date ] ?? 0;
-					$closed = empty( $config['week'][ (int) $day->format( 'w' ) ] ) || in_array( $date, $config['closed'], true );
+					$closed = ! opening_hours( $day, $config );
 					?>
 					<a class="wpb-admin-day<?php echo $closed ? ' wpb-admin-day-closed' : ''; ?>"
 						<?php echo $date === $selected_key ? 'aria-current="date"' : ''; ?>
@@ -138,13 +142,14 @@ function render_agenda( array $rows ): void {
 	?>
 	<ul class="wpb-admin-agenda">
 		<?php foreach ( $rows as $row ) : ?>
+			<?php $state = pending_expired( $row, time() ) ? 'expired' : $row['status']; ?>
 			<li>
 				<div>
 					<a class="wpb-admin-agenda-title" href="<?php echo esc_url( admin_url_for( array( 'tab' => 'bookings', 'q' => $row['reference'] ) ) ); ?>"><?php echo esc_html( $row['service_name'] ); ?></a>
 					<span><?php echo esc_html( $row['customer_name'] ); ?></span>
 					<small><?php echo esc_html( booking_time( $row ) ); ?></small>
 				</div>
-				<span class="wpb-admin-status wpb-admin-<?php echo esc_attr( $row['status'] ); ?>"><?php echo esc_html( $states[ $row['status'] ] ?? $row['status'] ); ?></span>
+				<span class="wpb-admin-status wpb-admin-<?php echo esc_attr( $state ); ?>"><?php echo esc_html( $states[ $state ] ?? $state ); ?></span>
 			</li>
 		<?php endforeach; ?>
 	</ul>

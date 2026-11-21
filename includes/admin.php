@@ -162,8 +162,12 @@ function save_service( string $id, array $posted ) {
 	if ( '' !== $price && ( ! ctype_digit( $price ) || (int) $price > 9999999 ) ) {
 		return new WP_Error( 'wpb_service_price', '服務費用須為 0 至 9,999,999 元的整數。' );
 	}
+	$rules = service_rules_fields( $posted );
+	if ( is_wp_error( $rules ) ) {
+		return $rules;
+	}
 
-	return with_calendar_lock( static function () use ( $id, $name, $description, $duration, $price, $posted ) {
+	return with_calendar_lock( static function () use ( $id, $name, $description, $duration, $price, $posted, $rules ) {
 		$original = services();
 		$items = $original;
 		if ( '' !== $id && ! isset( $items[ $id ] ) ) {
@@ -179,9 +183,29 @@ function save_service( string $id, array $posted ) {
 			'duration'    => (int) $duration,
 			'price'       => '' === $price ? null : (int) $price,
 			'enabled'     => '1' === read_field( $posted, 'enabled' ),
-		);
+		) + $rules;
 		return $items === $original || update_option( SERVICES_OPTION, $items, false ) ? true : storage_error();
 	} );
+}
+
+function service_rules_fields( array $posted ) {
+	$values = array();
+	foreach ( array( 'buffer_before' => 0, 'buffer_after' => 0, 'lead_minutes' => null, 'horizon_days' => null ) as $key => $default ) {
+		$value = read_field( $posted, $key );
+		if ( '' === $value ) {
+			$values[ $key ] = $default;
+			continue;
+		}
+		$number = (int) $value;
+		$is_buffer = null !== $default;
+		$max = $is_buffer ? MAX_BUFFER_MINUTES : ( 'horizon_days' === $key ? 365 : 10080 );
+		$min = 'horizon_days' === $key ? 1 : 0;
+		if ( ! ctype_digit( $value ) || $number < $min || $number > $max || ( $is_buffer && $number % STEP_MINUTES ) ) {
+			return new WP_Error( 'wpb_service_rules', '請確認服務排程規則。前後緩衝最多 120 分鐘，以 15 分鐘為一格。' );
+		}
+		$values[ $key ] = $number;
+	}
+	return $values;
 }
 
 function render_services(): void {
@@ -218,6 +242,13 @@ function render_service_form( string $id, array $service ): void {
 		<label>服務簡介（選填）<textarea name="description" rows="3" maxlength="500"><?php echo esc_textarea( $service['description'] ); ?></textarea></label>
 		<label>所需時間（分鐘）<input type="number" name="duration" required min="15" max="480" step="15" value="<?php echo esc_attr( $service['duration'] ); ?>"></label>
 		<label>服務費用（NT$，選填）<input type="number" name="price" min="0" max="9999999" step="1" value="<?php echo esc_attr( $service['price'] ?? '' ); ?>"></label>
+		<details class="wpb-admin-service-rules">
+			<summary>個別排程規則</summary>
+			<label>服務前緩衝（分鐘）<input type="number" name="buffer_before" min="0" max="120" step="15" value="<?php echo esc_attr( $service['buffer_before'] ?? 0 ); ?>"></label>
+			<label>服務後緩衝（分鐘）<input type="number" name="buffer_after" min="0" max="120" step="15" value="<?php echo esc_attr( $service['buffer_after'] ?? 0 ); ?>"></label>
+			<label>至少提前預約（分鐘）<input type="number" name="lead_minutes" min="0" max="10080" placeholder="沿用全站設定" value="<?php echo esc_attr( $service['lead_minutes'] ?? '' ); ?>"></label>
+			<label>開放預約天數<input type="number" name="horizon_days" min="1" max="365" placeholder="沿用全站設定" value="<?php echo esc_attr( $service['horizon_days'] ?? '' ); ?>"></label>
+		</details>
 		<label><input type="checkbox" name="enabled" value="1" <?php checked( $service['enabled'] ); ?>>開放預約</label>
 		<button class="wpb-admin-btn wpb-admin-primary" type="submit"><?php echo '' === $id ? '新增服務' : '儲存服務'; ?></button>
 	</form>
@@ -259,6 +290,19 @@ function save_settings( array $posted ) {
 	if ( '' !== $email && ( strlen( $email ) > 254 || ! is_email( $email ) ) ) {
 		return new WP_Error( 'wpb_notify_email', '請輸入有效的通知信箱。' );
 	}
+	$overrides = parse_date_hours( read_field( $posted, 'date_hours' ) );
+	if ( is_wp_error( $overrides ) ) {
+		return $overrides;
+	}
+	$previous = settings();
+	$minutes = array();
+	foreach ( array( 'cancel_cutoff', 'move_cutoff', 'hold_minutes' ) as $key ) {
+		$value = array_key_exists( $key, $posted ) ? read_field( $posted, $key ) : (string) $previous[ $key ];
+		if ( ! ctype_digit( $value ) || (int) $value > 10080 ) {
+			return new WP_Error( 'wpb_manage_time', '取消、改期與待確認期限都須介於 0 至 10080 分鐘。' );
+		}
+		$minutes[ $key ] = (int) $value;
+	}
 	$config = array(
 		'week'         => $week,
 		'closed'       => $closed,
@@ -266,16 +310,52 @@ function save_settings( array $posted ) {
 		'horizon_days' => (int) $horizon,
 		'auto_confirm' => '1' === read_field( $posted, 'auto_confirm' ),
 		'notify_email' => $email,
-	);
+		'date_hours'   => $overrides,
+		'self_cancel'  => '1' === read_field( $posted, 'self_cancel' ),
+		'self_move'    => '1' === read_field( $posted, 'self_move' ),
+		'remind_day'   => '1' === read_field( $posted, 'remind_day' ),
+		'remind_soon'  => '1' === read_field( $posted, 'remind_soon' ),
+	) + $minutes;
 
 	return with_calendar_lock( static function () use ( $config ) {
-		return $config === settings() || update_option( SETTINGS_OPTION, $config, false ) ? true : storage_error();
+		$current = settings();
+		$updated = array_replace( $current, $config );
+		return $updated === $current || update_option( SETTINGS_OPTION, $updated, false ) ? true : storage_error();
 	} );
+}
+
+function parse_date_hours( string $input ) {
+	$lines = preg_split( '/\R/u', trim( $input ), -1, PREG_SPLIT_NO_EMPTY );
+	if ( ! is_array( $lines ) || count( $lines ) > 90 || strlen( $input ) > 18000 ) {
+		return new WP_Error( 'wpb_date_hours', '最多可新增 90 筆特殊日期營業時間。' );
+	}
+	$timezone = wp_timezone();
+	$overrides = array();
+	foreach ( $lines as $line ) {
+		$parts = preg_split( '/\s+/u', trim( $line ), 2 );
+		if ( 2 !== count( $parts ) || ! calendar_date( $parts[0], $timezone ) || isset( $overrides[ $parts[0] ] ) ) {
+			return new WP_Error( 'wpb_date_hours', '每個特殊日期填一行，格式為 YYYY-MM-DD HH:MM-HH:MM。' );
+		}
+		$hours = parse_hours( $parts[1] );
+		if ( is_wp_error( $hours ) || ! $hours ) {
+			return new WP_Error( 'wpb_date_hours', '特殊日期的營業時間無效，請確認起訖時間與 15 分鐘刻度。' );
+		}
+		$overrides[ $parts[0] ] = $hours;
+	}
+	ksort( $overrides );
+	return $overrides;
 }
 
 function render_settings(): void {
 	$config = settings();
 	$weekdays = array( '星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六' );
+	$special_hours = array();
+	foreach ( $config['date_hours'] as $date => $ranges ) {
+		$labels = array_map( static function ( array $range ): string {
+			return clock_label( $range[0] ) . '-' . clock_label( $range[1] );
+		}, $ranges );
+		$special_hours[] = $date . ' ' . implode( ', ', $labels );
+	}
 	?>
 	<div class="wpb-admin-section-head"><div><h2>排程與系統設定</h2>
 		<p>排程使用網站時區 <?php echo esc_html( wp_timezone_string() ); ?>。</p></div></div>
@@ -306,6 +386,10 @@ function render_settings(): void {
 				<label>休假日期（每行一筆，格式 YYYY-MM-DD）
 					<textarea name="closed" data-wpb-closure-text rows="3" maxlength="4096"><?php echo esc_textarea( implode( "\n", $config['closed'] ) ); ?></textarea>
 				</label>
+				<label>特殊日期營業時間（每行一筆）
+					<textarea name="date_hours" rows="4" maxlength="18000" placeholder="2027-01-05 09:00-12:00, 13:00-17:00"><?php echo esc_textarea( implode( "\n", $special_hours ) ); ?></textarea>
+				</label>
+				<p>指定日期的時段會取代該星期的預設時段，同日有公休時以公休為準。</p>
 			</section>
 			<section class="wpb-admin-card">
 				<h2>預約規則</h2>
@@ -319,7 +403,21 @@ function render_settings(): void {
 					<input type="email" name="notify_email" maxlength="254" value="<?php echo esc_attr( $config['notify_email'] ); ?>">
 				</label>
 				<label><input type="checkbox" name="auto_confirm" value="1" <?php checked( $config['auto_confirm'] ); ?>>送出後自動確認</label>
-				<p>採人工確認時，待確認的預約會先保留時段。</p>
+				<label>待確認保留（分鐘，0 為不限制）<input type="number" name="hold_minutes" min="0" max="10080" required value="<?php echo esc_attr( $config['hold_minutes'] ); ?>"></label>
+				<p>新建的待確認預約逾時會釋出時段。</p>
+			</section>
+			<section class="wpb-admin-card">
+				<h2>客戶自行管理</h2>
+				<label><input type="checkbox" name="self_cancel" value="1" <?php checked( $config['self_cancel'] ); ?>>允許客戶自行取消</label>
+				<label>取消截止（預約前分鐘）<input type="number" name="cancel_cutoff" min="0" max="10080" required value="<?php echo esc_attr( $config['cancel_cutoff'] ); ?>"></label>
+				<label><input type="checkbox" name="self_move" value="1" <?php checked( $config['self_move'] ); ?>>允許客戶自行改期</label>
+				<label>改期截止（預約前分鐘）<input type="number" name="move_cutoff" min="0" max="10080" required value="<?php echo esc_attr( $config['move_cutoff'] ); ?>"></label>
+			</section>
+			<section class="wpb-admin-card">
+				<h2>預約提醒</h2>
+				<label><input type="checkbox" name="remind_day" value="1" <?php checked( $config['remind_day'] ); ?>>開始前 24 小時寄信</label>
+				<label><input type="checkbox" name="remind_soon" value="1" <?php checked( $config['remind_soon'] ); ?>>開始前 2 小時寄信</label>
+				<p>設定套用至之後確認或改期的預約。可在訂單詳情查看排程與寄送紀錄。</p>
 			</section>
 		</div>
 		<p><button type="submit" class="wpb-admin-btn wpb-admin-primary">儲存排程設定</button></p>
@@ -348,10 +446,19 @@ function render_bookings(): void {
 	$args = array();
 	$filters = array();
 
-	if ( isset( $states[ $status ] ) ) {
+	$now = time();
+	if ( 'expired' === $status ) {
+		$where[] = "(status = 'expired' OR (status = 'pending' AND hold_until > 0 AND hold_until <= %d))";
+		$args[] = $now;
+		$filters['status'] = $status;
+	} elseif ( isset( $states[ $status ] ) ) {
 		$where[] = 'status = %s';
 		$args[] = $status;
 		$filters['status'] = $status;
+		if ( 'pending' === $status ) {
+			$where[] = '(hold_until = 0 OR hold_until > %d)';
+			$args[] = $now;
+		}
 	}
 	if ( '' !== $query ) {
 		$where[] = '(reference LIKE %s OR customer_name LIKE %s OR customer_email LIKE %s)';
@@ -412,11 +519,12 @@ function render_bookings(): void {
 				<?php if ( ! $rows ) : ?>
 					<tr><td colspan="6"><?php echo esc_html( $wpdb->last_error ? '無法讀取預約，請稍後再試。' : '目前沒有符合條件的預約。' ); ?></td></tr>
 				<?php endif; ?>
-				<?php foreach ( $rows as $row ) : ?>
+		<?php foreach ( $rows as $row ) : ?>
+					<?php $state = pending_expired( $row, $now ) ? 'expired' : $row['status']; ?>
 					<tr>
 						<td><strong><?php echo esc_html( $row['customer_name'] ?: '匿名預約' ); ?></strong><small><?php echo esc_html( $row['reference'] ); ?></small></td>
 						<td><?php echo esc_html( $row['service_name'] ); ?></td>
-						<td><span class="wpb-admin-status wpb-admin-<?php echo esc_attr( $row['status'] ); ?>"><?php echo esc_html( $states[ $row['status'] ] ?? $row['status'] ); ?></span></td>
+						<td><span class="wpb-admin-status wpb-admin-<?php echo esc_attr( $state ); ?>"><?php echo esc_html( $states[ $state ] ?? $state ); ?></span></td>
 						<td><?php echo esc_html( booking_price( $row['price'] ?? null ) ); ?></td>
 						<td><?php echo esc_html( booking_time( $row ) ); ?></td>
 						<td>
@@ -437,13 +545,15 @@ function render_bookings(): void {
 		<?php endif; ?>
 	</div>
 	</div>
+	<?php $notices = booking_notices( array_column( $rows, 'id' ) ); ?>
 	<?php foreach ( $rows as $row ) : ?>
-		<?php render_booking_detail( $row, $states ); ?>
+		<?php render_booking_detail( $row, $states, $notices[ $row['id'] ] ?? array() ); ?>
 	<?php endforeach; ?>
 	<?php
 }
 
-function render_booking_detail( array $booking, array $states ): void {
+function render_booking_detail( array $booking, array $states, array $notices ): void {
+	$state = pending_expired( $booking, time() ) ? 'expired' : $booking['status'];
 	$lines = array(
 		'預約時段' => booking_time( $booking ),
 		'服務費用' => booking_price( $booking['price'] ?? null ),
@@ -452,18 +562,28 @@ function render_booking_detail( array $booking, array $states ): void {
 		'聯絡電話' => $booking['customer_phone'],
 		'客戶備註' => $booking['note'],
 	);
+	if ( 'pending' === $state && ! empty( $booking['hold_until'] ) ) {
+		$lines['確認期限'] = wp_date( 'Y/m/d H:i', (int) $booking['hold_until'] );
+	}
 	?>
 	<dialog class="wpb-admin-dialog wpb-admin-drawer" id="wpb-detail-<?php echo esc_attr( $booking['id'] ); ?>" aria-label="預約訂單詳情">
 		<button class="wpb-admin-close" type="button" data-wpb-dismiss aria-label="關閉">×</button>
 		<span class="wpb-admin-brand"><?php echo esc_html( $booking['reference'] ); ?></span>
 		<h2><?php echo esc_html( $booking['service_name'] ); ?></h2>
-		<span class="wpb-admin-status wpb-admin-<?php echo esc_attr( $booking['status'] ); ?>"><?php echo esc_html( $states[ $booking['status'] ] ); ?></span>
+		<span class="wpb-admin-status wpb-admin-<?php echo esc_attr( $state ); ?>"><?php echo esc_html( $states[ $state ] ); ?></span>
 		<dl>
 			<?php foreach ( $lines as $label => $value ) : ?>
 				<div><dt><?php echo esc_html( $label ); ?></dt><dd><?php echo nl2br( esc_html( '' === $value ? '—' : $value ) ); ?></dd></div>
 			<?php endforeach; ?>
 		</dl>
 		<?php render_status_form( $booking, $states ); ?>
+		<?php if ( may_reschedule( $booking ) ) : ?>
+			<details class="wpb-admin-booking-section">
+				<summary>直接改期</summary>
+				<?php render_management_form( (int) $booking['id'] ); ?>
+			</details>
+		<?php endif; ?>
+		<?php render_booking_activity( $booking, $notices ); ?>
 		<?php if ( '' !== $booking['customer_email'] ) : ?>
 			<form class="wpb-admin-note" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" method="post">
 				<?php admin_form_fields( 'note', 'wpb-note-' . $booking['id'] ); ?>
@@ -473,6 +593,55 @@ function render_booking_detail( array $booking, array $states ): void {
 			</form>
 		<?php endif; ?>
 	</dialog>
+	<?php
+}
+
+function render_booking_activity( array $booking, array $notices ): void {
+	$kinds = notice_types();
+	$labels = array( 'accepted' => '寄信系統已接受', 'failed' => '寄送失敗', 'skipped' => '已略過', 'sending' => '寄送結果待確認' );
+	$history = array_reverse( booking_history( $booking ) );
+	$events = status_labels() + array( 'admin_moved' => '管理員改期', 'customer_moved' => '客戶自行改期' );
+	?>
+	<details class="wpb-admin-booking-section">
+		<summary>提醒排程與寄送紀錄</summary>
+		<ul>
+			<?php foreach ( array( 'remind_day', 'remind_soon' ) as $field ) : ?>
+				<?php if ( ! empty( $booking[ $field ] ) ) : ?>
+					<li><?php echo esc_html( $kinds[ $field ] . ' · 排程 ' . wp_date( 'Y/m/d H:i', (int) $booking[ $field ] ) ); ?></li>
+				<?php endif; ?>
+			<?php endforeach; ?>
+			<?php foreach ( $notices as $notice ) : ?>
+				<li>
+					<?php
+					$time = (int) ( $notice['sent_at'] ?: $notice['due_at'] );
+					$who = 'admin' === $notice['recipient'] ? '管理員' : '客戶';
+					echo esc_html( ( $kinds[ $notice['kind'] ] ?? $notice['kind'] ) . ' · ' . $who . ' · ' . ( $labels[ $notice['state'] ] ?? $notice['state'] ) );
+					echo $time ? esc_html( ' · ' . wp_date( 'Y/m/d H:i', $time ) ) : '';
+					echo $notice['detail'] ? esc_html( ' · ' . $notice['detail'] ) : '';
+					?>
+				</li>
+			<?php endforeach; ?>
+			<?php if ( ! $notices && empty( $booking['remind_day'] ) && empty( $booking['remind_soon'] ) ) : ?><li>目前沒有排程或寄送紀錄。</li><?php endif; ?>
+		</ul>
+		<?php if ( in_array( 'failed', array_column( $notices, 'state' ), true ) ) : ?><p>寄信失敗時可查看網站 SMTP 外掛的記錄。</p><?php endif; ?>
+	</details>
+	<?php if ( $history ) : ?>
+		<details class="wpb-admin-booking-section">
+			<summary>預約變更紀錄</summary>
+			<ul>
+				<?php foreach ( $history as $entry ) : ?>
+					<li>
+						<?php
+						echo esc_html( ( $events[ $entry['kind'] ] ?? $entry['kind'] ) . ' · ' . wp_date( 'Y/m/d H:i', $entry['at'] ) );
+						if ( in_array( $entry['kind'], array( 'admin_moved', 'customer_moved' ), true ) ) {
+							echo esc_html( ' · 原時段 ' . booking_time( array( 'starts_at' => $entry['previous_start'], 'ends_at' => $entry['previous_end'], 'timezone' => $entry['timezone'] ) ) );
+						}
+						?>
+					</li>
+				<?php endforeach; ?>
+			</ul>
+		</details>
+	<?php endif; ?>
 	<?php
 }
 

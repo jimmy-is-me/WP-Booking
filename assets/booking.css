@@ -95,6 +95,15 @@
 .wpb .wpb-form { margin: 0; }
 .wpb :is(input, textarea, button, a):focus-visible { outline: 2px solid var(--wpb-blue); outline-offset: 2px; }
 .wpb.wpb-compact { margin: 0; padding: 12px; }
+.wpb .wpb-credit { padding-top: 19px; text-align: center; font-size: .76rem; color: var(--wpb-muted); }
+.wpb .wpb-credit a { color: var(--wpb-blue); text-decoration: none; font-weight: 725; }
+.wpb .wpb-credit a:hover { text-decoration: underline; }
+.wpb.wpb-management-page { max-width: 650px; }
+.wpb .wpb-manage { padding: 20px; background: #fff; border: 1px solid var(--wpb-border); border-radius: 16px; }
+.wpb .wpb-manage form { display: grid; gap: 12px; margin: 14px 0; }
+.wpb .wpb-manage label { display: grid; gap: 4px; }
+.wpb .wpb-manage :is(input, select) { min-height: 42px; padding: 6px; border: 1px solid var(--wpb-border); border-radius: 8px; font: inherit; }
+.wpb .wpb-manage [data-wpb-cancel-confirm] { margin-top: 10px; }
 
 @media (max-width: 680px) {
 	.wpb .wpb-stepper { grid-template-columns: repeat(2, minmax(0, 1fr)); }

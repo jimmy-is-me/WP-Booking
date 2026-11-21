@@ -97,6 +97,10 @@
 .wpb-admin .wpb-admin-drawer dt { color: var(--wpba-muted); font-size: 12px; }
 .wpb-admin .wpb-admin-drawer dd { margin: 0; }
 .wpb-admin .wpb-admin-note { margin-top: 16px; }
+.wpb-admin .wpb-admin-booking-section, .wpb-admin .wpb-admin-service-rules { margin: 12px 0; padding: 10px; background: var(--wpba-cream); border: 1px solid var(--wpba-border); border-radius: 9px; }
+.wpb-admin .wpb-admin-booking-section summary, .wpb-admin .wpb-admin-service-rules summary { cursor: pointer; font-weight: 700; }
+.wpb-admin .wpb-admin-booking-section :is(label, input, select) { display: block; margin: 5px 0; }
+.wpb-admin .wpb-admin-expired, .wpb-admin .wpb-admin-no_show { background: var(--wpba-coral); color: #8f2545; }
 
 @media (max-width: 850px) {
 	.wpb-admin .wpb-admin-calendar-columns { grid-template-columns: minmax(0, 1fr); }

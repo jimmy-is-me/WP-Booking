@@ -9,6 +9,7 @@ use WP_Error;
 defined( 'ABSPATH' ) || exit;
 
 const STEP_MINUTES = 15;
+const MAX_BUFFER_MINUTES = 120;
 const SETTINGS_OPTION = 'wumetax_wpb_settings';
 const SERVICES_OPTION = 'wumetax_wpb_services';
 
@@ -21,6 +22,14 @@ function settings(): array {
 		'horizon_days'  => 30,
 		'auto_confirm'  => false,
 		'notify_email'  => '',
+		'date_hours'    => array(),
+		'cancel_cutoff' => 120,
+		'move_cutoff'   => 120,
+		'self_cancel'   => true,
+		'self_move'     => true,
+		'hold_minutes'  => 0,
+		'remind_day'    => false,
+		'remind_soon'   => false,
 	);
 
 	$saved = get_option( SETTINGS_OPTION, array() );
@@ -93,34 +102,53 @@ function calendar_limits( array $config, DateTimeImmutable $now ): array {
 	);
 }
 
+function service_schedule( array $config, array $service ): array {
+	$config['lead_minutes'] = $service['lead_minutes'] ?? $config['lead_minutes'];
+	$config['horizon_days'] = $service['horizon_days'] ?? $config['horizon_days'];
+	$config['buffer_before'] = (int) ( $service['buffer_before'] ?? 0 );
+	$config['buffer_after'] = (int) ( $service['buffer_after'] ?? 0 );
+	return $config;
+}
+
+function opening_hours( DateTimeImmutable $day, array $config ): array {
+	$date = $day->format( 'Y-m-d' );
+	if ( in_array( $date, $config['closed'], true ) ) {
+		return array();
+	}
+	return $config['date_hours'][ $date ] ?? $config['week'][ (int) $day->format( 'w' ) ] ?? array();
+}
+
 /** Return start timestamps and labels, each covering a complete service. */
 function scheduled_slots( DateTimeImmutable $day, int $duration, array $config, DateTimeImmutable $now ): array {
 	$date = $day->format( 'Y-m-d' );
 	$limits = calendar_limits( $config, $now );
-	$hours = $config['week'][ (int) $day->format( 'w' ) ] ?? array();
-	if ( $date < $limits['min'] || $date > $limits['max'] || in_array( $date, $config['closed'], true ) || ! $hours ) {
+	$hours = opening_hours( $day, $config );
+	if ( $date < $limits['min'] || $date > $limits['max'] || ! $hours ) {
 		return array();
 	}
 
 	$start = $day->getTimestamp();
 	$day_end = $day->modify( 'tomorrow' )->getTimestamp();
 	$earliest = max( $now->getTimestamp() + 1, $now->getTimestamp() + (int) $config['lead_minutes'] * 60 );
+	$before = $config['buffer_before'] ?? 0;
+	$after = $config['buffer_after'] ?? 0;
 	$slots = array();
 	$labels = array();
 
-	for ( $timestamp = $start; $timestamp + $duration * 60 <= $day_end; $timestamp += STEP_MINUTES * 60 ) {
+	for ( $timestamp = $start + $before * 60; $timestamp + ( $duration + $after ) * 60 <= $day_end; $timestamp += STEP_MINUTES * 60 ) {
 		if ( $timestamp < $earliest ) {
 			continue;
 		}
 		$local = $day->setTimestamp( $timestamp );
-		$last = $day->setTimestamp( $timestamp + $duration * 60 - 1 );
+		$first = $day->setTimestamp( $timestamp - $before * 60 );
+		$last = $day->setTimestamp( $timestamp + ( $duration + $after ) * 60 - 1 );
 		// Avoid an appointment spanning a clock change. Repeated starts get an offset label.
-		if ( $local->getOffset() !== $last->getOffset() ) {
+		if ( $local->getOffset() !== $first->getOffset() || $local->getOffset() !== $last->getOffset() ) {
 			continue;
 		}
 		$minute = (int) $local->format( 'G' ) * 60 + (int) $local->format( 'i' );
 		foreach ( $hours as list( $opens, $closes ) ) {
-			if ( $minute >= $opens && $minute + $duration <= $closes ) {
+			if ( $minute - $before >= $opens && $minute + $duration + $after <= $closes ) {
 				$label = $local->format( 'H:i' );
 				$slots[ $timestamp ] = $label;
 				$labels[ $label ] = ( $labels[ $label ] ?? 0 ) + 1;
@@ -143,5 +171,7 @@ function status_labels(): array {
 		'confirmed' => '已確認',
 		'completed' => '已完成',
 		'cancelled' => '已取消',
+		'expired'   => '待確認逾時',
+		'no_show'   => '未到場',
 	);
 }
