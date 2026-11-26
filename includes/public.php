@@ -323,6 +323,7 @@ function booking_wizard( bool $admin = false, string $selected_date = '', bool $
 			data-wpb-nonce="<?php echo esc_attr( wp_create_nonce( 'wp_rest' ) ); ?>"
 			data-wpb-date="<?php echo esc_attr( $selected_date ); ?>"
 		<?php endif; ?>>
+		<div class="wpb-window-bar" aria-hidden="true"><span class="wpb-window-lights"><i></i><i></i><i></i></span><span class="wpb-window-tab">WP Booking</span></div>
 		<header class="wpb-header">
 			<?php if ( $admin ) : ?>
 				<h2 id="<?php echo esc_attr( $id . '-title' ); ?>">新增預約</h2>

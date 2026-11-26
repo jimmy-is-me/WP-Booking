@@ -59,6 +59,7 @@ function render_admin(): void {
 	$tab = isset( $tabs[ $tab ] ) ? $tab : ( $has_filter ? 'bookings' : 'overview' );
 	?>
 	<div class="wrap wpb-admin">
+		<div class="wpb-window-bar" aria-hidden="true"><span class="wpb-window-lights"><i></i><i></i><i></i></span><span class="wpb-window-tab">WP Booking</span></div>
 		<header class="wpb-admin-header">
 			<div>
 				<span class="wpb-admin-brand"><span class="wpb-admin-logo"><?php echo wpb_icon( 'calendar' ); ?></span> WP Booking</span>

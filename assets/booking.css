@@ -1,4 +1,4 @@
-@import url("https://api.fontshare.com/v2/css?f[]=general-sans@500,600,700&f[]=satoshi@400,500,600,700&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap");
 
 .wpb {
 	--wpb-ink: #000;
@@ -141,3 +141,29 @@
 	.wpb .wpb-month h4 { font-size: .87rem; }
 }
 @media (prefers-reduced-motion: reduce) { .wpb *, .wpb *::before { transition: none !important; } }
+
+.wpb-window-bar { display:flex; align-items:end; gap:16px; min-height:40px; padding:8px 12px 0; background:#e9eef3; border:1px solid #d1d5db; border-radius:12px 12px 0 0; }
+.wpb-window-lights { display:flex; gap:5px; align-self:center; margin-bottom:8px; }
+.wpb-window-lights i { width:8px; height:8px; border-radius:50%; background:#ff5f57; }
+.wpb-window-lights i:nth-child(2) { background:#febc2e; }
+.wpb-window-lights i:nth-child(3) { background:#28c840; }
+.wpb-window-tab { padding:6px 16px; background:#fff; color:#164e63; border-radius:8px 8px 0 0; border-top:2px solid #06b6d4; font:500 12px "JetBrains Mono",monospace; }
+
+.wpb { --wpb-blue:#0e7490; --wpb-sky:#ecfeff; --wpb-ink:#111827; --wpb-cream:#f3f4f6; max-width:1120px; font-family:Inter,"Noto Sans TC",system-ui,sans-serif; background:linear-gradient(#d1d5db4d 1px,transparent 1px),linear-gradient(90deg,#d1d5db4d 1px,transparent 1px),#f3f4f6; background-size:20px 20px; }
+.wpb :is(h2,h3,h4,.wpb-service strong) { font-family:Inter,"Noto Sans TC",system-ui,sans-serif; font-weight:600; }
+.wpb :is(.wpb-day,.wpb-slot,.wpb-help,.wpb-service-meta,.wpb-summary dd) { font-family:"JetBrains Mono","Noto Sans TC",monospace; }
+.wpb .wpb-header { background:#fff; border:1px solid #e5e7eb; border-top:0; padding:12px 20px; margin:0 0 12px; }
+.wpb .wpb-header h2 { font-size:clamp(20px,4vw,32px); margin:0; }
+.wpb .wpb-stepper [aria-current="step"] { border-color:#06b6d4; background:#ecfeff; }
+.wpb :is(.wpb-wizard,.wpb-calendar,.wpb-service,.wpb-summary) { border-radius:12px; box-shadow:0 1px 3px #00000012; }
+.wpb :is(.wpb-day.wpb-available,.wpb-slot):not([aria-pressed="true"]) { border-color:#a5f3fc; background:#ecfeff; color:#155e75; }
+.wpb :is(.wpb-day,.wpb-slot,.wpb-service)[aria-pressed="true"] { outline:2px solid #06b6d4; outline-offset:1px; border-color:#0891b2; background:#cffafe; color:#164e63; box-shadow:none; }
+.wpb :is(button,a,input,textarea,select):focus-visible { outline-color:#0891b2; }
+.wpb :is(.wpb-slot:enabled,.wpb-day:enabled,.wpb-service):hover { border-color:#06b6d4; }
+.wpb .wpb-button:not(:disabled):not(.wpb-secondary):hover { background:#155e75; }
+.wpb .wpb-result { margin-block:16px; border:1px solid #a5f3fc; border-top:4px solid #06b6d4; border-radius:12px; background:linear-gradient(#ecfeff,#fff 140px); }
+.wpb .wpb-confirm-icon { background:#cffafe; color:#0e7490; box-shadow:0 0 0 6px #ecfeff; margin-bottom:16px; }
+.wpb .wpb-stage:not([hidden]) { animation:wpb-stage-in .4s ease-out; }
+@keyframes wpb-stage-in { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:translateY(0); } }
+@media(max-width:480px) { .wpb { padding:8px; } .wpb .wpb-stage { padding:12px; } .wpb .wpb-days { gap:3px; } .wpb .wpb-day { font-size:.8rem; } .wpb .wpb-result { margin:8px; } }
+@media(prefers-reduced-motion:reduce) { .wpb .wpb-stage:not([hidden]) { animation:none; } }
