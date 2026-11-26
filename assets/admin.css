@@ -186,3 +186,14 @@
 .wpb-admin .wpb-admin-overflow::-webkit-scrollbar { height:10px; width:10px; }
 .wpb-admin .wpb-admin-overflow::-webkit-scrollbar-thumb { background:#d1d5db; border-radius:8px; }
 @media(max-width:600px) { .wpb-admin { width:100%; margin-inline:0; padding:8px; } .wpb-admin .wpb-admin-header { padding:12px; } }
+
+.wpb-admin .wpb-admin-quick-confirm { display:inline-flex; margin:4px 0 4px 4px; }
+.wpb-admin .wpb-admin-detail { max-width:960px; }
+.wpb-admin .wpb-admin-detail > dl {
+	display:grid;
+	grid-template-columns:repeat(auto-fit,minmax(min(100%,240px),1fr));
+	gap:12px;
+}
+.wpb-admin .wpb-admin-detail > dl > div { padding:12px; border:1px solid #e5e7eb; border-radius:8px; overflow-wrap:anywhere; }
+.wpb-admin .wpb-admin-detail dt { color:#475569; }
+.wpb-admin .wpb-admin-detail dd { margin:4px 0 0; }

@@ -23,6 +23,51 @@ function register_booking_role(): void {
 	}
 }
 
+function booking_plugin_actions( array $links ): array {
+	if ( current_user_can( 'manage_options' ) ) {
+		$links = array( 'wpb_settings' => '<a href="' . esc_url( admin_url_for( array( 'tab' => 'settings' ) ) ) . '">設定</a>' ) + $links;
+	}
+	return $links;
+}
+
+function booking_plugin_details_link( array $links, string $file ): array {
+	if ( plugin_basename( FILE ) !== $file ) {
+		return $links;
+	}
+	if ( current_user_can( 'install_plugins' ) ) {
+		$url = add_query_arg( array( 'tab' => 'plugin-information', 'plugin' => 'wp-booking', 'TB_iframe' => 'true', 'width' => 720, 'height' => 600 ), self_admin_url( 'plugin-install.php' ) );
+		$links[] = '<a class="thickbox open-plugin-details-modal" href="' . esc_url( $url ) . '" aria-label="檢視 WP Booking 詳細資料">檢視詳細資料</a>';
+	} else {
+		$links[] = '<a href="' . esc_url( RELEASE_ROOT . '/tag/v' . VERSION ) . '">檢視詳細資料</a>';
+	}
+	return $links;
+}
+
+function booking_plugin_information( $result, string $action, $args ) {
+	if ( 'plugin_information' !== $action || 'wp-booking' !== ( $args->slug ?? '' ) || ! current_user_can( 'install_plugins' ) ) {
+		return $result;
+	}
+	return (object) array(
+		'name' => 'WP Booking',
+		'slug' => 'wp-booking',
+		'version' => VERSION,
+		'author' => '<a href="https://wumetax.com/">WUMETAX 末特數位科技</a>',
+		'requires' => '6.5',
+		'requires_php' => '7.4',
+		'homepage' => RELEASE_ROOT,
+		'download_link' => '',
+		'sections' => array(
+			'description' => '<p>繁體中文 WordPress 預約外掛，提供服務時段、月曆、通知與訂單管理。</p><p><code>[wp_booking]</code> 接受預約。<code>[wp_booking_availability]</code> 顯示可預約時段。</p>',
+			'installation' => '<p>在同站啟用並授權 WU Toolbox Modular，再到「預約管理 → 服務項目管理」建立服務，並從「排程與系統設定」設定營業時間。</p>',
+			'changelog' => '<p>v1.4.4 新增外掛列表快捷入口、預約詳情頁、快速確認，以及融入網站佈景的前台介面。</p><p><a href="' . esc_url( RELEASE_ROOT ) . '">版本紀錄</a></p>',
+		),
+	);
+}
+
+add_filter( 'plugin_action_links_' . plugin_basename( FILE ), __NAMESPACE__ . '\booking_plugin_actions' );
+add_filter( 'plugin_row_meta', __NAMESPACE__ . '\booking_plugin_details_link', 10, 2 );
+add_filter( 'plugins_api', __NAMESPACE__ . '\booking_plugin_information', 10, 3 );
+
 function register_admin(): void {
 	$screen = add_menu_page( 'WP Booking', '預約管理', current_user_can( 'manage_options' ) ? 'manage_options' : 'wpb_manage_bookings', 'wp-booking', __NAMESPACE__ . '\\render_admin', 'dashicons-calendar-alt' );
 	if ( $screen ) {
@@ -57,13 +102,14 @@ function render_admin(): void {
 	$tab = read_field( $_GET, 'tab' );
 	$has_filter = array_intersect( array( 'q', 'status', 'from', 'to', 'paged' ), array_keys( $_GET ) );
 	$tab = isset( $tabs[ $tab ] ) ? $tab : ( $has_filter ? 'bookings' : 'overview' );
+	$detail_id = 'bookings' === $tab ? absint( read_field( $_GET, 'booking' ) ) : 0;
 	?>
 	<div class="wrap wpb-admin">
 		<div class="wpb-window-bar" aria-hidden="true"><span class="wpb-window-lights"><i></i><i></i><i></i></span><span class="wpb-window-tab">WP Booking</span></div>
 		<header class="wpb-admin-header">
 			<div>
 				<span class="wpb-admin-brand"><span class="wpb-admin-logo"><?php echo wpb_icon( 'calendar' ); ?></span> WP Booking</span>
-				<h1><?php echo esc_html( $tabs[ $tab ] ); ?></h1>
+				<h1><?php echo esc_html( $detail_id ? '預約詳細資料' : $tabs[ $tab ] ); ?></h1>
 			</div>
 			<?php if ( in_array( $tab, array( 'overview', 'bookings' ), true ) ) : ?>
 				<button class="wpb-admin-btn wpb-admin-primary" type="button" data-wpb-dialog="wpb-create-booking">＋ 新增預約</button>
@@ -99,7 +145,11 @@ function render_admin(): void {
 		} elseif ( 'calendar' === $tab ) {
 			render_admin_calendar();
 		} elseif ( 'bookings' === $tab ) {
-			render_bookings();
+			if ( $detail_id ) {
+				render_booking_page( $detail_id );
+			} else {
+				render_bookings();
+			}
 		} else {
 			render_admin_overview();
 		}
@@ -618,7 +668,8 @@ function render_bookings(): void {
 						<td><?php echo esc_html( booking_price( $row['price'] ?? null ) ); ?></td>
 						<td><?php echo esc_html( booking_time( $row ) ); ?></td>
 						<td>
-							<button class="wpb-admin-btn" type="button" data-wpb-dialog="wpb-detail-<?php echo esc_attr( $row['id'] ); ?>" aria-label="<?php echo esc_attr( '查看預約 ' . $row['reference'] ); ?>">查看</button>
+							<button class="wpb-admin-btn" type="button" data-wpb-dialog="wpb-detail-<?php echo esc_attr( $row['id'] ); ?>" aria-label="<?php echo esc_attr( '查看預約 ' . $row['reference'] ); ?>">詳細資料</button>
+							<?php render_quick_confirm( $row ); ?>
 						</td>
 					</tr>
 				<?php endforeach; ?>
@@ -642,7 +693,39 @@ function render_bookings(): void {
 	<?php
 }
 
-function render_booking_detail( array $booking, array $states, array $notices ): void {
+function render_booking_page( int $id ): void {
+	$booking = find_booking( $id );
+	?>
+	<div class="wpb-admin-section-head">
+		<a class="wpb-admin-btn" href="<?php echo esc_url( admin_url_for( array( 'tab' => 'bookings' ) ) ); ?>">返回預約列表</a>
+		<?php if ( $booking ) : ?>
+			<a class="wpb-admin-btn" href="<?php echo esc_url( admin_url_for( array( 'tab' => 'calendar', 'day' => wp_date( 'Y-m-d', (int) $booking['starts_at'] ) ) ) ); ?>">查看當日行事曆</a>
+		<?php endif; ?>
+	</div>
+	<?php
+	if ( ! $booking ) {
+		echo '<p class="wpb-admin-card" role="status">找不到這筆預約。</p>';
+		return;
+	}
+	$notices = booking_notices( array( $id ) );
+	render_booking_detail( $booking, status_labels(), $notices[ $id ] ?? array(), true );
+}
+
+function render_quick_confirm( array $booking ): void {
+	if ( ! in_array( 'confirmed', allowed_statuses( $booking ), true ) ) {
+		return;
+	}
+	?>
+	<form class="wpb-admin-quick-confirm" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" method="post">
+		<?php admin_form_fields( 'status', 'wpb-booking-' . $booking['id'] ); ?>
+		<input type="hidden" name="booking_id" value="<?php echo esc_attr( $booking['id'] ); ?>">
+		<button class="wpb-admin-btn wpb-admin-primary" type="submit" name="status" value="confirmed"
+			aria-label="<?php echo esc_attr( '確認預約 ' . $booking['reference'] ); ?>">確認預約</button>
+	</form>
+	<?php
+}
+
+function render_booking_detail( array $booking, array $states, array $notices, bool $standalone = false ): void {
 	$state = pending_expired( $booking, time() ) ? 'expired' : $booking['status'];
 	$lines = array(
 		'預約時段' => booking_time( $booking ),
@@ -656,8 +739,12 @@ function render_booking_detail( array $booking, array $states, array $notices ):
 		$lines['確認期限'] = wp_date( 'Y/m/d H:i', (int) $booking['hold_until'] );
 	}
 	?>
+	<?php if ( $standalone ) : ?>
+	<section class="wpb-admin-card wpb-admin-detail">
+	<?php else : ?>
 	<dialog class="wpb-admin-dialog wpb-admin-drawer" id="wpb-detail-<?php echo esc_attr( $booking['id'] ); ?>" aria-label="預約訂單詳情">
 		<button class="wpb-admin-close" type="button" data-wpb-dismiss aria-label="關閉">×</button>
+	<?php endif; ?>
 		<span class="wpb-admin-brand"><?php echo esc_html( $booking['reference'] ); ?></span>
 		<h2><?php echo esc_html( $booking['service_name'] ); ?></h2>
 		<span class="wpb-admin-status wpb-admin-<?php echo esc_attr( $state ); ?>"><?php echo esc_html( $states[ $state ] ); ?></span>
@@ -682,7 +769,7 @@ function render_booking_detail( array $booking, array $states, array $notices ):
 				<button class="wpb-admin-btn" type="submit">儲存備註</button>
 			</form>
 		<?php endif; ?>
-	</dialog>
+	<?php if ( $standalone ) : ?></section><?php else : ?></dialog><?php endif; ?>
 	<?php
 }
 

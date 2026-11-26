@@ -212,7 +212,7 @@ function serve_management_page(): void {
 		<link rel="stylesheet" href="<?php echo esc_url( add_query_arg( 'ver', VERSION, plugins_url( 'assets/booking.css', FILE ) ) ); ?>">
 	</head>
 	<body>
-		<main class="wpb wpb-management-page">
+		<main class="wpb wpb-embedded wpb-management-page">
 			<header class="wpb-header"><h2>管理預約</h2></header>
 			<?php render_management_form(); ?>
 			<?php powered_by(); ?>

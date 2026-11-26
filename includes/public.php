@@ -314,7 +314,7 @@ function booking_wizard( bool $admin = false, string $selected_date = '', bool $
 
 	ob_start();
 	?>
-	<section class="wpb<?php echo $admin ? ' wpb-compact' : ''; ?>" aria-labelledby="<?php echo esc_attr( $id . '-title' ); ?>"
+	<section class="wpb<?php echo $admin ? ' wpb-compact' : ' wpb-embedded'; ?>" aria-labelledby="<?php echo esc_attr( $id . '-title' ); ?>"
 		data-wpb-calendar="<?php echo esc_url( rest_url( API . '/calendar' ) ); ?>"
 		data-wpb-month="<?php echo esc_url( rest_url( API . '/month' ) ); ?>"
 		data-wpb-slots="<?php echo esc_url( rest_url( API . '/slots' ) ); ?>"
@@ -323,7 +323,9 @@ function booking_wizard( bool $admin = false, string $selected_date = '', bool $
 			data-wpb-nonce="<?php echo esc_attr( wp_create_nonce( 'wp_rest' ) ); ?>"
 			data-wpb-date="<?php echo esc_attr( $selected_date ); ?>"
 		<?php endif; ?>>
+<?php if ( $admin ) : ?>
 		<div class="wpb-window-bar" aria-hidden="true"><span class="wpb-window-lights"><i></i><i></i><i></i></span><span class="wpb-window-tab">WP Booking</span></div>
+		<?php endif; ?>
 		<header class="wpb-header">
 			<?php if ( $admin ) : ?>
 				<h2 id="<?php echo esc_attr( $id . '-title' ); ?>">新增預約</h2>

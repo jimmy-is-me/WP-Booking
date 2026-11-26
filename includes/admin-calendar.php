@@ -30,7 +30,7 @@ function render_admin_overview(): void {
 	), OBJECT_K );
 	$mail = $wpdb->get_col( unresolved_mail_query() );
 	$upcoming = $wpdb->get_results( $wpdb->prepare(
-		"SELECT reference, service_name, starts_at, ends_at, timezone, status, customer_name, hold_until
+		"SELECT id, reference, service_name, starts_at, ends_at, timezone, status, customer_name, hold_until
 		FROM {$table} WHERE starts_at >= %d AND (status = 'confirmed' OR (status = 'pending' AND (hold_until = 0 OR hold_until > %d)))
 		ORDER BY starts_at, id LIMIT 5",
 		$now->getTimestamp(), $now->getTimestamp()
@@ -105,7 +105,7 @@ function render_admin_calendar(): void {
 		$counts[ $date ] = ( $counts[ $date ] ?? 0 ) + 1;
 	}
 	$rows = $wpdb->get_results( $wpdb->prepare(
-		"SELECT reference, service_name, starts_at, ends_at, timezone, status, customer_name, hold_until
+		"SELECT id, reference, service_name, starts_at, ends_at, timezone, status, customer_name, hold_until
 		FROM {$table} WHERE starts_at >= %d AND starts_at < %d ORDER BY starts_at, id",
 		$selected->getTimestamp(), $selected->modify( 'tomorrow' )->getTimestamp()
 	), ARRAY_A );
@@ -166,7 +166,7 @@ function render_agenda( array $rows ): void {
 			<?php $state = pending_expired( $row, time() ) ? 'expired' : $row['status']; ?>
 			<li>
 				<div>
-					<a class="wpb-admin-agenda-title" href="<?php echo esc_url( admin_url_for( array( 'tab' => 'bookings', 'q' => $row['reference'] ) ) ); ?>"><?php echo esc_html( $row['service_name'] ); ?></a>
+					<a class="wpb-admin-agenda-title" href="<?php echo esc_url( admin_url_for( array( 'tab' => 'bookings', 'booking' => $row['id'] ) ) ); ?>"><?php echo esc_html( $row['service_name'] ); ?></a>
 					<span><?php echo esc_html( $row['customer_name'] ); ?></span>
 					<small><?php echo esc_html( booking_time( $row ) ); ?></small>
 				</div>
@@ -203,7 +203,7 @@ function render_booking_week( DateTimeImmutable $selected, DateTimeImmutable $to
 	$end = $start->modify( '+7 days' );
 	$table = booking_table();
 	$rows = $wpdb->get_results( $wpdb->prepare(
-		"SELECT reference, service_name, starts_at, ends_at, timezone, status, customer_name, hold_until
+		"SELECT id, reference, service_name, starts_at, ends_at, timezone, status, customer_name, hold_until
 		FROM {$table} WHERE starts_at >= %d AND starts_at < %d AND status NOT IN ('cancelled','expired')
 		AND (status <> 'pending' OR hold_until = 0 OR hold_until > %d) ORDER BY starts_at, id",
 		$start->getTimestamp(), $end->getTimestamp(), time()
