@@ -19,16 +19,6 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Remove legacy public license server ZIP
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          assets=$(gh release view v1.4.1 --json assets --jq '.assets[].name')
-          if grep -Fxq 'wp-booking-license-server.zip' <<< "$assets"; then
-            gh release delete-asset v1.4.1 wp-booking-license-server.zip --yes
-          fi
-
       - name: Validate and publish
         env:
           GH_TOKEN: ${{ github.token }}
