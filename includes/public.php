@@ -304,6 +304,9 @@ function render_availability(): string {
 }
 
 function booking_wizard( bool $admin = false, string $selected_date = '', bool $availability = false ): string {
+	if ( ! $admin && ! $availability && ! booking_license_is_active() ) {
+		return '<p class="wpb-message" role="status">目前暫停接受新預約，請聯絡店家。</p>';
+	}
 	wp_enqueue_style( 'wp-booking' );
 	wp_enqueue_script( 'wp-booking' );
 	$id = wp_unique_id( 'wpb-' );

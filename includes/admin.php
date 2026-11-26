@@ -82,7 +82,7 @@ function render_admin(): void {
 			<div class="notice notice-success is-dismissible"><p>WordPress 寄信系統已接受通知。</p></div>
 		<?php endif; ?>
 		<?php if ( ! booking_license_is_active() && current_user_can( 'manage_options' ) && 'license' !== $tab ) : ?>
-			<div class="notice notice-warning"><p>本站尚未取得有效授權，新預約已暫停。<a href="<?php echo esc_url( admin_url_for( array( 'tab' => 'license' ) ) ); ?>">前往授權與更新</a></p></div>
+			<div class="notice notice-warning"><p>本站的 WU Toolbox Modular 授權尚未生效，新預約已暫停。<a href="<?php echo esc_url( admin_url_for( array( 'tab' => 'license' ) ) ); ?>">前往授權與更新</a></p></div>
 		<?php endif; ?>
 		<?php if ( SCHEMA_VERSION !== (int) get_option( SCHEMA_OPTION ) ) : ?>
 			<div class="notice notice-error"><p>無法建立預約資料表，請檢查 WordPress 資料庫權限。</p></div>

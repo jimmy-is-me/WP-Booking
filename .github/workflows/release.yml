@@ -19,6 +19,16 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Remove legacy public license server ZIP
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          assets=$(gh release view v1.4.1 --json assets --jq '.assets[].name')
+          if grep -Fxq 'wp-booking-license-server.zip' <<< "$assets"; then
+            gh release delete-asset v1.4.1 wp-booking-license-server.zip --yes
+          fi
+
       - name: Validate and publish
         env:
           GH_TOKEN: ${{ github.token }}
@@ -37,17 +47,17 @@ jobs:
             fi
           fi
 
-          find includes license-server -name '*.php' -print0 | xargs -0 -n1 php -l
+          find includes -name '*.php' -print0 | xargs -0 -n1 php -l
           php -l wp-booking.php
+          php tests/shared-license.php
           for js in assets/*.js; do node --check "$js"; done
 
           stage=$(mktemp -d)
-          mkdir -p "$stage/wp-booking" "$stage/wp-booking-license-server"
+          mkdir -p "$stage/wp-booking"
           cp -r wp-booking.php includes assets README.md "$stage/wp-booking/"
-          cp license-server/wp-booking-license-server.php "$stage/wp-booking-license-server/"
-          (cd "$stage" && zip -qr "$RUNNER_TEMP/wp-booking.zip" wp-booking && zip -qr "$RUNNER_TEMP/wp-booking-license-server.zip" wp-booking-license-server)
+
+          (cd "$stage" && zip -qr "$RUNNER_TEMP/wp-booking.zip" wp-booking)
           unzip -tq "$RUNNER_TEMP/wp-booking.zip"
-          unzip -tq "$RUNNER_TEMP/wp-booking-license-server.zip"
 
           if ! git show-ref --verify --quiet "refs/tags/$tag"; then
             git tag "$tag"
@@ -55,4 +65,4 @@ jobs:
           fi
 
           gh release create "$tag" --verify-tag --title "WP Booking $tag" --generate-notes \
-            "$RUNNER_TEMP/wp-booking.zip" "$RUNNER_TEMP/wp-booking-license-server.zip"
+            "$RUNNER_TEMP/wp-booking.zip"

@@ -60,11 +60,9 @@ GPL-2.0-or-later。
 
 ## WUMETAX 主機授權與更新
 
-1. 在中央授權站安裝 Release 的 `wp-booking-license-server.zip`，並在 **工具 → WP Booking 授權** 建立每站專用的授權碼。客戶站只安裝 `wp-booking.zip`。
-2. 在客戶站開啟 **預約管理 → 授權與更新**，輸入授權碼。預設授權端點為 `https://wpcd.wumetax.com/wp-json/wp-booking-license/v1`。如使用另一個 HTTPS 站點，可在客戶站 `wp-config.php` 定義 `WPB_LICENSE_API` 為完整 REST 根網址。
-3. 管理端的「提供版本」填版本號。儲存前會確認公開 GitHub Release 內已有正式 ZIP。客戶站每十二小時做背景驗證，也可按「重新驗證並檢查更新」。WordPress 原生外掛更新頁會顯示高於已安裝版本的授權版本。
-4. 停用或解除綁定會於下次驗證套用。授權暫停時停止新建預約，既有預約仍可管理。連線失敗時可沿用最近成功驗證起算的 48 小時接單有效期。更新下載會重新驗證。
+1. 在同一個 WordPress 站啟用 WU Toolbox Modular，並在工具箱完成既有的 WUMETAX 網站授權。
+2. 安裝本專案 Release 的 `wp-booking.zip`。在「預約管理 → 授權與更新」可查看共用授權狀態。WP Booking 不另行發碼或呼叫授權伺服器。
+3. 推送新版至 `main` 後，Actions 建立 Tag 與正式 GitHub Release。正式 Release 公開後，授權有效且允許更新的網站會在 WordPress 原生更新畫面看到新版。也可從 WP Booking 的授權頁立即檢查。
+4. Toolbox 授權無效或外掛未啟用時，停止建立新預約，既有預約仍可管理。背景驗證與離線寬限沿用 Toolbox 判斷。
 
-既有站點請於升級到 1.4.1 前備妥授權碼，升級後立即啟用。首次導入須安裝本版 ZIP 才有授權與原生更新功能。GitHub Repo 與 Release ZIP 為公開資源。
-
-推送至 `main` 後，Actions 會檢查版本及程式語法，建立同版本 Tag，再發布兩個獨立 ZIP。發布新版本時同步修改外掛標頭與 `VERSION`。
+1.4.1 使用獨立授權流程，請以本版 ZIP 手動取代以遷移至共用授權。請勿在客戶站安裝舊版的獨立授權伺服器。GitHub 原始碼及客戶端 ZIP 為公開資源，授權站的客戶資料依照原先的 Toolbox 管理方式保留在中央站。
