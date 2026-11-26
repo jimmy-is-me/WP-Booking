@@ -49,9 +49,10 @@ function render_admin(): void {
 		'calendar' => '行事曆排程',
 		'services' => '服務項目管理',
 		'settings' => '排程與系統設定',
+		'license' => '授權與更新',
 	);
 	if ( ! current_user_can( 'manage_options' ) ) {
-		unset( $tabs['services'], $tabs['settings'] );
+		unset( $tabs['services'], $tabs['settings'], $tabs['license'] );
 	}
 	$tab = read_field( $_GET, 'tab' );
 	$has_filter = array_intersect( array( 'q', 'status', 'from', 'to', 'paged' ), array_keys( $_GET ) );
@@ -80,11 +81,16 @@ function render_admin(): void {
 		<?php if ( 'mail' === read_field( $_GET, 'wpb_saved' ) ) : ?>
 			<div class="notice notice-success is-dismissible"><p>WordPress 寄信系統已接受通知。</p></div>
 		<?php endif; ?>
+		<?php if ( ! booking_license_is_active() && current_user_can( 'manage_options' ) && 'license' !== $tab ) : ?>
+			<div class="notice notice-warning"><p>本站尚未取得有效授權，新預約已暫停。<a href="<?php echo esc_url( admin_url_for( array( 'tab' => 'license' ) ) ); ?>">前往授權與更新</a></p></div>
+		<?php endif; ?>
 		<?php if ( SCHEMA_VERSION !== (int) get_option( SCHEMA_OPTION ) ) : ?>
 			<div class="notice notice-error"><p>無法建立預約資料表，請檢查 WordPress 資料庫權限。</p></div>
 		<?php endif; ?>
 		<?php
-		if ( 'services' === $tab ) {
+		if ( 'license' === $tab ) {
+			render_booking_license();
+		} elseif ( 'services' === $tab ) {
 			render_services();
 		} elseif ( 'settings' === $tab ) {
 			render_booking_health();

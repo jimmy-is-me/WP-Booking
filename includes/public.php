@@ -256,6 +256,9 @@ function admin_booking_response( WP_REST_Request $request ) {
 }
 
 function create_booking_response( WP_REST_Request $request, string $rate_key = '' ) {
+	if ( ! booking_license_is_active() ) {
+		return new WP_Error( 'wpb_license_required', '此網站目前暫停接受新預約，請聯絡店家。', array( 'status' => 403 ) );
+	}
 	$payload = $request->get_json_params();
 	$input = validate_booking( is_array( $payload ) ? $payload : array() );
 	if ( is_wp_error( $input ) ) {

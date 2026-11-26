@@ -1,0 +1,58 @@
+name: Release WP Booking
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    concurrency:
+      group: wp-booking-release
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate and publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          version=$(awk '/^ \* Version:/ {print $3; exit}' wp-booking.php)
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          grep -Fx "const VERSION = '$version';" wp-booking.php
+          tag="v$version"
+
+          if git show-ref --verify --quiet "refs/tags/$tag"; then
+            git checkout --detach "$tag"
+            if gh release view "$tag" >/dev/null 2>&1; then
+              echo "Release $tag already exists."
+              exit 0
+            fi
+          fi
+
+          find includes license-server -name '*.php' -print0 | xargs -0 -n1 php -l
+          php -l wp-booking.php
+          for js in assets/*.js; do node --check "$js"; done
+
+          stage=$(mktemp -d)
+          mkdir -p "$stage/wp-booking" "$stage/wp-booking-license-server"
+          cp -r wp-booking.php includes assets README.md "$stage/wp-booking/"
+          cp license-server/wp-booking-license-server.php "$stage/wp-booking-license-server/"
+          (cd "$stage" && zip -qr "$RUNNER_TEMP/wp-booking.zip" wp-booking && zip -qr "$RUNNER_TEMP/wp-booking-license-server.zip" wp-booking-license-server)
+          unzip -tq "$RUNNER_TEMP/wp-booking.zip"
+          unzip -tq "$RUNNER_TEMP/wp-booking-license-server.zip"
+
+          if ! git show-ref --verify --quiet "refs/tags/$tag"; then
+            git tag "$tag"
+            git push origin "refs/tags/$tag"
+          fi
+
+          gh release create "$tag" --verify-tag --title "WP Booking $tag" --generate-notes \
+            "$RUNNER_TEMP/wp-booking.zip" "$RUNNER_TEMP/wp-booking-license-server.zip"
