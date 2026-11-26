@@ -281,12 +281,13 @@ function register_form(): void {
 	wp_register_style( 'wp-booking', plugins_url( 'assets/booking.css', FILE ), array(), VERSION );
 	wp_register_script( 'wp-booking', plugins_url( 'assets/booking.js', FILE ), array(), VERSION, true );
 	add_shortcode( 'wp_booking', __NAMESPACE__ . '\\render_form' );
+	add_shortcode( 'wp_booking_availability', __NAMESPACE__ . '\\render_availability' );
 	add_action( 'wp_enqueue_scripts', __NAMESPACE__ . '\\enqueue_shortcode_style' );
 }
 
 function enqueue_shortcode_style(): void {
 	$post = get_queried_object();
-	if ( $post instanceof \WP_Post && has_shortcode( $post->post_content, 'wp_booking' ) ) {
+	if ( $post instanceof \WP_Post && ( has_shortcode( $post->post_content, 'wp_booking' ) || has_shortcode( $post->post_content, 'wp_booking_availability' ) ) ) {
 		wp_enqueue_style( 'wp-booking' );
 	}
 }
@@ -295,7 +296,11 @@ function render_form(): string {
 	return booking_wizard();
 }
 
-function booking_wizard( bool $admin = false, string $selected_date = '' ): string {
+function render_availability(): string {
+	return booking_wizard( false, '', true );
+}
+
+function booking_wizard( bool $admin = false, string $selected_date = '', bool $availability = false ): string {
 	wp_enqueue_style( 'wp-booking' );
 	wp_enqueue_script( 'wp-booking' );
 	$id = wp_unique_id( 'wpb-' );
@@ -307,7 +312,7 @@ function booking_wizard( bool $admin = false, string $selected_date = '' ): stri
 		data-wpb-calendar="<?php echo esc_url( rest_url( API . '/calendar' ) ); ?>"
 		data-wpb-month="<?php echo esc_url( rest_url( API . '/month' ) ); ?>"
 		data-wpb-slots="<?php echo esc_url( rest_url( API . '/slots' ) ); ?>"
-		data-wpb-bookings="<?php echo esc_url( rest_url( API . ( $admin ? '/admin-bookings' : '/bookings' ) ) ); ?>"
+		<?php if ( ! $availability ) : ?>data-wpb-bookings="<?php echo esc_url( rest_url( API . ( $admin ? '/admin-bookings' : '/bookings' ) ) ); ?>"<?php endif; ?>
 		<?php if ( $admin ) : ?>
 			data-wpb-nonce="<?php echo esc_attr( wp_create_nonce( 'wp_rest' ) ); ?>"
 			data-wpb-date="<?php echo esc_attr( $selected_date ); ?>"
@@ -316,17 +321,15 @@ function booking_wizard( bool $admin = false, string $selected_date = '' ): stri
 			<?php if ( $admin ) : ?>
 				<h2 id="<?php echo esc_attr( $id . '-title' ); ?>">新增預約</h2>
 			<?php else : ?>
-				<span class="wpb-badge"><?php echo wpb_icon( 'calendar' ); ?> 線上即時預約 · 免登入</span>
-				<h2 id="<?php echo esc_attr( $id . '-title' ); ?>">四個步驟，<mark>輕鬆完成預約</mark></h2>
-				<p>選擇服務與空位，填寫聯絡資料即可預約。</p>
+				<h2 id="<?php echo esc_attr( $id . '-title' ); ?>"><?php echo $availability ? '可預約時段' : '線上預約'; ?></h2>
 			<?php endif; ?>
 		</header>
 		<noscript><p class="wpb-message">請啟用 JavaScript 以使用預約表單。</p></noscript>
 		<p class="wpb-message" data-wpb="calendar-message" role="status" hidden></p>
 		<button class="wpb-button wpb-secondary" type="button" data-wpb="retry" hidden>重新載入</button>
 		<div class="wpb-wizard" data-wpb="wizard" hidden>
-			<ol class="wpb-stepper" aria-label="預約進度">
-				<?php foreach ( array( '選擇服務', '日期時段', '聯絡資料', '預約完成' ) as $index => $label ) : ?>
+			<ol class="wpb-stepper<?php echo $availability ? ' wpb-stepper-short' : ''; ?>" aria-label="預約進度">
+				<?php foreach ( ( $availability ? array( '選擇服務', '日期時段' ) : array( '選擇服務', '日期時段', '聯絡資料', '預約完成' ) ) as $index => $label ) : ?>
 					<li data-wpb-step="<?php echo esc_attr( $index + 1 ); ?>"><span><?php echo esc_html( $index + 1 ); ?></span><?php echo esc_html( $label ); ?></li>
 				<?php endforeach; ?>
 			</ol>
@@ -360,9 +363,10 @@ function booking_wizard( bool $admin = false, string $selected_date = '' ): stri
 				</div>
 				<div class="wpb-actions">
 					<button class="wpb-button wpb-secondary" data-wpb="back-service" type="button"><span aria-hidden="true">←</span> 上一步</button>
-					<button class="wpb-button" data-wpb="contact-next" type="button" disabled>下一步：填寫資料 <span aria-hidden="true">→</span></button>
+					<?php if ( ! $availability ) : ?><button class="wpb-button" data-wpb="contact-next" type="button" disabled>下一步：填寫資料 <span aria-hidden="true">→</span></button><?php endif; ?>
 				</div>
 			</div>
+			<?php if ( ! $availability ) : ?>
 			<div class="wpb-stage" data-wpb-panel="3" hidden>
 				<h3 tabindex="-1">填寫聯絡資料</h3>
 				<form class="wpb-form" data-wpb="form">
@@ -409,6 +413,7 @@ function booking_wizard( bool $admin = false, string $selected_date = '' ): stri
 					<button class="wpb-button wpb-secondary" type="button" data-wpb="another">新增另一筆預約</button>
 				<?php endif; ?>
 			</div>
+			<?php endif; ?>
 		</div>
 		<?php if ( ! $admin ) : ?>
 			<?php powered_by(); ?>

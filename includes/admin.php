@@ -60,8 +60,8 @@ function render_admin(): void {
 	<div class="wrap wpb-admin">
 		<header class="wpb-admin-header">
 			<div>
-				<span class="wpb-admin-brand"><?php echo wpb_icon( 'calendar' ); ?> WP Booking</span>
-				<h1>預約管理儀表板</h1>
+				<span class="wpb-admin-brand"><span class="wpb-admin-logo"><?php echo wpb_icon( 'calendar' ); ?></span> WP Booking</span>
+				<h1><?php echo esc_html( $tabs[ $tab ] ); ?></h1>
 			</div>
 			<?php if ( in_array( $tab, array( 'overview', 'bookings' ), true ) ) : ?>
 				<button class="wpb-admin-btn wpb-admin-primary" type="button" data-wpb-dialog="wpb-create-booking">＋ 新增預約</button>
@@ -100,6 +100,7 @@ function render_admin(): void {
 			render_quick_booking();
 		}
 		?>
+		<?php powered_by(); ?>
 	</div>
 	<?php
 }
@@ -117,7 +118,7 @@ function handle_admin(): void {
 		wp_die( '您沒有管理預約的權限。', '', array( 'response' => 403 ) );
 	}
 	$operation = read_field( $_POST, 'operation' );
-	if ( in_array( $operation, array( 'services', 'settings', 'test_mail' ), true ) && ! current_user_can( 'manage_options' ) ) {
+	if ( in_array( $operation, array( 'services', 'settings', 'test_mail', 'availability' ), true ) && ! current_user_can( 'manage_options' ) ) {
 		wp_die( '您沒有調整系統設定的權限。', '', array( 'response' => 403 ) );
 	}
 	$tab = $operation;
@@ -144,6 +145,11 @@ function handle_admin(): void {
 			check_admin_referer( 'wpb-resend-' . $id );
 			$result = resend_booking_notice( $id );
 			break;
+		case 'availability':
+			check_admin_referer( 'wpb-availability' );
+			$tab = 'calendar';
+			$result = save_availability( $_POST );
+			break;
 		case 'status':
 			$tab = 'bookings';
 			$id = (int) read_field( $_POST, 'booking_id' );
@@ -163,7 +169,7 @@ function handle_admin(): void {
 		wp_die( esc_html( $result->get_error_message() ), '無法儲存', array( 'response' => 400, 'back_link' => true ) );
 	}
 
-	$target = in_array( $operation, array( 'status', 'note', 'resend' ), true ) && wp_get_referer() ? wp_get_referer() : admin_url_for( array( 'tab' => $tab ) );
+	$target = in_array( $operation, array( 'status', 'note', 'resend', 'availability' ), true ) && wp_get_referer() ? wp_get_referer() : admin_url_for( array( 'tab' => $tab ) );
 	wp_safe_redirect( add_query_arg( 'wpb_saved', in_array( $operation, array( 'test_mail', 'resend' ), true ) ? 'mail' : '1', $target ), 303 );
 	exit;
 }
@@ -484,6 +490,14 @@ function render_bookings(): void {
 	$args = array();
 	$filters = array();
 	$queue = read_field( $_GET, 'queue' );
+	$service = read_field( $_GET, 'service' );
+	$sort = read_field( $_GET, 'sort' );
+	$services = services();
+	if ( isset( $services[ $service ] ) ) {
+		$where[] = 'service_id = %s';
+		$args[] = $service;
+		$filters['service'] = $service;
+	}
 
 	$now = time();
 	if ( in_array( $queue, array( 'upcoming', 'overdue' ), true ) ) {
@@ -509,9 +523,9 @@ function render_bookings(): void {
 		}
 	}
 	if ( '' !== $query ) {
-		$where[] = '(reference LIKE %s OR customer_name LIKE %s OR customer_email LIKE %s)';
+		$where[] = '(reference LIKE %s OR customer_name LIKE %s OR customer_email LIKE %s OR customer_phone LIKE %s)';
 		$search = '%' . $wpdb->esc_like( $query ) . '%';
-		array_push( $args, $search, $search, $search );
+		array_push( $args, $search, $search, $search, $search );
 		$filters['q'] = $query;
 	}
 	if ( $from ) {
@@ -530,9 +544,16 @@ function render_bookings(): void {
 	$max_page = max( 1, (int) ceil( $total / $per_page ) );
 	$page = min( $page, $max_page );
 	$order = "CASE WHEN starts_at >= %d THEN 0 ELSE 1 END, CASE WHEN starts_at >= %d THEN starts_at END ASC, starts_at DESC, id DESC";
+	$order_args = array( $now, $now );
+	$sort_orders = array( 'earliest' => 'starts_at ASC, id ASC', 'latest' => 'starts_at DESC, id DESC', 'created' => 'id DESC' );
+	if ( isset( $sort_orders[ $sort ] ) ) {
+		$order = $sort_orders[ $sort ];
+		$order_args = array();
+		$filters['sort'] = $sort;
+	}
 	$rows = $wpdb->get_results( $wpdb->prepare(
 		"SELECT * {$sql} ORDER BY {$order} LIMIT %d OFFSET %d",
-		array_merge( $args, array( $now, $now, $per_page, ( $page - 1 ) * $per_page ) )
+		array_merge( $args, $order_args, array( $per_page, ( $page - 1 ) * $per_page ) )
 	), ARRAY_A );
 	?>
 	<div class="wpb-admin-section-head"><h2>預約訂單列表</h2></div>
@@ -548,11 +569,22 @@ function render_bookings(): void {
 		<input type="hidden" name="page" value="wp-booking">
 		<input type="hidden" name="tab" value="bookings">
 		<?php if ( isset( $filters['queue'] ) ) : ?><input type="hidden" name="queue" value="<?php echo esc_attr( $queue ); ?>"><?php endif; ?>
-		<label>搜尋預約<input type="search" name="q" maxlength="100" placeholder="編號、姓名或電子郵件" value="<?php echo esc_attr( $query ); ?>"></label>
+		<label>搜尋預約<input type="search" name="q" maxlength="100" placeholder="編號、姓名、電話或電子郵件" value="<?php echo esc_attr( $query ); ?>"></label>
 		<label>狀態<select name="status">
 			<option value="">全部狀態</option>
 			<?php foreach ( $states as $value => $label ) : ?>
 				<option value="<?php echo esc_attr( $value ); ?>" <?php selected( $status, $value ); ?>><?php echo esc_html( $label ); ?></option>
+			<?php endforeach; ?>
+		</select></label>
+		<label>服務<select name="service">
+			<option value="">全部服務</option>
+			<?php foreach ( $services as $id => $item ) : ?>
+				<option value="<?php echo esc_attr( $id ); ?>" <?php selected( $service, $id ); ?>><?php echo esc_html( $item['name'] ); ?></option>
+			<?php endforeach; ?>
+		</select></label>
+		<label>排序<select name="sort">
+			<?php foreach ( array( '' => '即將到來優先', 'earliest' => '預約時間由早到晚', 'latest' => '預約時間由晚到早', 'created' => '最近建立優先' ) as $value => $label ) : ?>
+				<option value="<?php echo esc_attr( $value ); ?>" <?php selected( $sort, $value ); ?>><?php echo esc_html( $label ); ?></option>
 			<?php endforeach; ?>
 		</select></label>
 		<label>起始日期<input type="date" name="from" value="<?php echo esc_attr( $filters['from'] ?? '' ); ?>"></label>
@@ -562,7 +594,8 @@ function render_bookings(): void {
 			<a href="<?php echo esc_url( admin_url_for( array( 'tab' => 'bookings' ) ) ); ?>">清除篩選</a>
 		<?php endif; ?>
 	</form>
-	<div class="wpb-admin-overflow">
+	<p class="wpb-scroll-hint" data-wpb-scroll-hint hidden>可向右滑動查看其餘欄位 <span aria-hidden="true">→</span></p>
+	<div class="wpb-admin-overflow" data-wpb-scroll tabindex="0" role="region" aria-label="預約訂單表格">
 		<table class="widefat striped">
 			<thead><tr><th>預約客戶</th><th>服務項目</th><th>狀態</th><th>服務費用</th><th>預約時段</th><th>操作</th></tr></thead>
 			<tbody>

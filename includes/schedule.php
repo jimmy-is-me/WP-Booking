@@ -18,6 +18,7 @@ function settings(): array {
 	$defaults = array(
 		'week'          => array( array(), $workday, $workday, $workday, $workday, $workday, array() ),
 		'closed'        => array(),
+		'blocked_hours' => array(),
 		'lead_minutes'  => 120,
 		'horizon_days'  => 30,
 		'auto_confirm'  => false,
@@ -115,7 +116,24 @@ function opening_hours( DateTimeImmutable $day, array $config ): array {
 	if ( in_array( $date, $config['closed'], true ) ) {
 		return array();
 	}
-	return $config['date_hours'][ $date ] ?? $config['week'][ (int) $day->format( 'w' ) ] ?? array();
+	$hours = $config['date_hours'][ $date ] ?? $config['week'][ (int) $day->format( 'w' ) ] ?? array();
+	foreach ( $config['blocked_hours'][ $date ] ?? array() as list( $blocked_start, $blocked_end ) ) {
+		$remaining = array();
+		foreach ( $hours as list( $start, $end ) ) {
+			if ( $blocked_end <= $start || $blocked_start >= $end ) {
+				$remaining[] = array( $start, $end );
+				continue;
+			}
+			if ( $start < $blocked_start ) {
+				$remaining[] = array( $start, $blocked_start );
+			}
+			if ( $blocked_end < $end ) {
+				$remaining[] = array( $blocked_end, $end );
+			}
+		}
+		$hours = $remaining;
+	}
+	return $hours;
 }
 
 /** Return start timestamps and labels, each covering a complete service. */

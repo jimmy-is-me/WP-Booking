@@ -201,7 +201,7 @@ function serve_management_page(): void {
 	header( 'X-Robots-Tag: noindex, nofollow', true );
 	header( 'Referrer-Policy: no-referrer', true );
 	header( 'Content-Type: text/html; charset=UTF-8', true );
-	header( "Content-Security-Policy: default-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'", true );
+	header( "Content-Security-Policy: default-src 'self'; style-src 'self' https://api.fontshare.com; font-src 'self' https://cdn.fontshare.com; base-uri 'none'; frame-ancestors 'none'; form-action 'none'", true );
 	?>
 	<!doctype html>
 	<html lang="zh-Hant">

@@ -75,6 +75,41 @@
 		render();
 	}
 
+	const availability = page.querySelector('[data-wpb-availability]');
+	if (availability) {
+		const { mode, from, to, hours } = availability.elements;
+		const label = availability.querySelector('[data-wpb-block-hours]');
+		const syncMode = () => {
+			const block = mode.value === 'block';
+			label.hidden = !block;
+			hours.disabled = !block;
+			hours.required = block;
+		};
+		mode.addEventListener('change', syncMode);
+		from.addEventListener('change', () => {
+			if (!to.value || to.value < from.value) to.value = from.value;
+			to.min = from.value;
+		});
+		syncMode();
+	}
+
+	for (const region of page.querySelectorAll('[data-wpb-scroll]')) {
+		const hint = region.previousElementSibling;
+		const reflect = () => {
+			const max = region.scrollWidth - region.clientWidth;
+			const offset = region.scrollLeft;
+			hint.hidden = max <= 2;
+			hint.toggleAttribute('data-end', max > 2 && offset >= max - 2);
+			hint.firstChild.textContent = offset >= max - 2 ? '已到最右側，可向左滑動 ' : '可向右滑動查看其餘內容 ';
+			hint.lastElementChild.textContent = offset >= max - 2 ? '←' : '→';
+		};
+		region.addEventListener('scroll', reflect, { passive: true });
+		const observer = new ResizeObserver(reflect);
+		observer.observe(region);
+		observer.observe(region.firstElementChild);
+		reflect();
+	}
+
 	const copy = page.querySelector('[data-wpb-copy]');
 	copy?.addEventListener('click', async () => {
 		try {

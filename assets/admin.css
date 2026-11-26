@@ -1,18 +1,21 @@
+@import url("https://api.fontshare.com/v2/css?f[]=general-sans@500,600,700&f[]=satoshi@400,500,600,700&display=swap");
+
 .wpb-admin {
-	--wpba-ink: #2c2a3a;
-	--wpba-muted: #655e72;
-	--wpba-cream: #fdf9f3;
-	--wpba-blue: #07648c;
-	--wpba-sky: #e0f5ff;
-	--wpba-coral: #ffe7eb;
-	--wpba-border: #e7e2e9;
+	--wpba-ink: #000;
+	--wpba-muted: #4b5563;
+	--wpba-cream: #f9fafb;
+	--wpba-blue: #000;
+	--wpba-sky: #f3f4f6;
+	--wpba-coral: #f3f4f6;
+	--wpba-border: #e5e7eb;
 	margin: 18px 18px 0 0;
 	padding: clamp(12px, 3vw, 32px);
-	max-width: 1460px;
+	max-width: 896px;
+	margin-inline: auto;
 	border: 1px solid var(--wpba-border);
 	border-radius: 24px;
-	background: radial-gradient(#ded5cb80 0.8px, transparent 0.8px) 0 0 / 16px 16px, var(--wpba-cream);
-	font-family: Poppins, "Noto Sans TC", system-ui, sans-serif;
+	background: var(--wpba-cream);
+	font-family: Satoshi, "Noto Sans TC", system-ui, sans-serif;
 	color: var(--wpba-ink);
 }
 
@@ -30,30 +33,30 @@
 .wpb-admin .wpb-admin-tabs a { display: inline-flex; gap: 5px; min-height: 36px; align-items: center; padding: 5px 13px; border-radius: 999px; color: var(--wpba-muted); font-weight: 700; text-decoration: none; white-space: nowrap; }
 .wpb-admin .wpb-admin-tabs a:hover, .wpb-admin .wpb-admin-tabs [aria-current] { background: var(--wpba-sky); color: var(--wpba-blue); }
 .wpb-admin .wpb-admin-btn { display: inline-flex; justify-content: center; align-items: center; gap: 5px; min-height: 36px; padding: 6px 12px; background: #fff; border: 1px solid var(--wpba-border); border-radius: 999px; color: var(--wpba-ink); font: inherit; font-weight: 700; line-height: 1.35; cursor: pointer; text-decoration: none; }
-.wpb-admin .wpb-admin-btn:hover, .wpb-admin .wpb-admin-btn[aria-pressed="true"], .wpb-admin .wpb-admin-btn[aria-current] { color: var(--wpba-blue); background: var(--wpba-sky); border-color: #bde7fb; }
+.wpb-admin .wpb-admin-btn:hover, .wpb-admin .wpb-admin-btn[aria-pressed="true"], .wpb-admin .wpb-admin-btn[aria-current] { color: var(--wpba-blue); background: var(--wpba-sky); border-color: #a3a3a3; }
 .wpb-admin .wpb-admin-primary { color: #fff; background: var(--wpba-blue); border-color: var(--wpba-blue); }
-.wpb-admin .wpb-admin-primary:hover { color: #fff; background: #064d6c; border-color: #064d6c; }
+.wpb-admin .wpb-admin-primary:hover { color: #fff; background: #262626; border-color: #262626; }
 .wpb-admin .wpb-admin-card { min-width: 0; padding: clamp(12px, 2.5vw, 22px); border: 1px solid var(--wpba-border); border-radius: 20px; background: #fff; box-shadow: 0 6px 24px #3427440b; }
 .wpb-admin .wpb-admin-cards, .wpb-admin .wpb-admin-metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 250px), 1fr)); align-items: start; gap: 13px; }
 .wpb-admin .wpb-admin-metrics { align-items: stretch; margin-bottom: 16px; }
 .wpb-admin .wpb-admin-icon { display: inline-grid; flex: 0 0 36px; place-items: center; width: 36px; height: 36px; border-radius: 11px; color: var(--wpba-blue); background: var(--wpba-sky); }
-.wpb-admin .wpb-admin-icon-coral { background: var(--wpba-coral); color: #a5264f; }
+.wpb-admin .wpb-admin-icon-coral { background: var(--wpba-coral); color: #374151; }
 .wpb-admin .wpb-admin-metric h2 { margin-top: 9px; font-size: 13px; }
 .wpb-admin .wpb-admin-metric p { font-size: clamp(24px, 4vw, 32px); font-weight: 800; color: var(--wpba-ink); margin: 4px 0; overflow-wrap: anywhere; }
 .wpb-admin .wpb-admin-metric small, .wpb-admin .wpb-admin-agenda small { color: var(--wpba-muted); }
 .wpb-admin .wpb-admin-card-heading { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
 .wpb-admin .wpb-admin-card-heading h2 { margin-inline-end: auto; overflow-wrap: anywhere; }
 .wpb-admin :is(.wpb-admin-card, .wpb-admin-note) label { display: block; color: var(--wpba-ink); margin: 0 0 12px; font-weight: 700; }
-.wpb-admin :is(input:not([type="checkbox"], [type="hidden"], [type="submit"]), select, textarea):not(.wpb *) { padding: 5px 9px; border-color: #cbc3ce; border-radius: 8px; color: var(--wpba-ink); background: #fff; }
+.wpb-admin :is(input:not([type="checkbox"], [type="hidden"], [type="submit"]), select, textarea):not(.wpb *) { padding: 5px 9px; border-color: #e5e7eb; border-radius: 8px; color: var(--wpba-ink); background: #fff; }
 .wpb-admin :is(.wpb-admin-card, .wpb-admin-note) label :is(input:not([type="checkbox"]), textarea):not(.wpb *) { display: block; width: 100%; margin: 4px 0 0; font-weight: 400; }
 .wpb-admin .wpb-admin-hours { display: flex; gap: 6px; align-items: center; }
 .wpb-admin .wpb-admin-hours label { flex: 1; min-width: 0; }
 .wpb-admin .wpb-admin-hours button { flex: 0 0 auto; }
 .wpb-admin .wpb-admin-closure-tools, .wpb-admin .wpb-admin-closures { display: flex; align-items: center; gap: 6px; margin: 8px 0; flex-wrap: wrap; }
 .wpb-admin .wpb-admin-closure-tools input { max-width: 100%; }
-.wpb-admin .wpb-admin-closures li { display: inline-flex; align-items: center; gap: 5px; background: var(--wpba-coral); color: #8f2545; border-radius: 999px; margin: 0; padding: 3px 8px; }
+.wpb-admin .wpb-admin-closures li { display: inline-flex; align-items: center; gap: 5px; background: var(--wpba-coral); color: #4b5563; border-radius: 999px; margin: 0; padding: 3px 8px; }
 .wpb-admin .wpb-admin-closures button { padding: 0 4px; background: transparent; border: 0; color: inherit; font-size: 15px; cursor: pointer; }
-.wpb-admin .wpb-admin-shortcode { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px; background: #2c2a3a; color: #fff; border-radius: 18px; padding: 18px; }
+.wpb-admin .wpb-admin-shortcode { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px; background: #000; color: #fff; border-radius: 18px; padding: 18px; }
 .wpb-admin .wpb-admin-shortcode :is(h2, p) { color: #fff; }
 .wpb-admin .wpb-admin-shortcode p { margin: 3px 0 0; }
 .wpb-admin .wpb-admin-shortcode code { color: #fff; background: #ffffff25; padding: 5px 7px; border-radius: 4px; }
@@ -62,9 +65,9 @@
 .wpb-admin .wpb-admin-month-links a { min-width: 36px; }
 .wpb-admin .wpb-admin-days { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; }
 .wpb-admin .wpb-admin-weekday { text-align: center; color: var(--wpba-muted); }
-.wpb-admin .wpb-admin-day { display: flex; flex-direction: column; align-items: center; gap: 2px; min-height: clamp(35px, 5vw, 64px); padding: 4px 0; border-radius: 8px; border: 1px solid var(--wpba-border); color: var(--wpba-ink); background: #fcfafc; text-decoration: none; }
+.wpb-admin .wpb-admin-day { display: flex; flex-direction: column; align-items: center; gap: 2px; min-height: clamp(35px, 5vw, 64px); padding: 4px 0; border-radius: 8px; border: 1px solid var(--wpba-border); color: var(--wpba-ink); background: #f9fafb; text-decoration: none; }
 .wpb-admin .wpb-admin-day span { color: var(--wpba-blue); font-size: 11px; text-align: center; }
-.wpb-admin .wpb-admin-day-closed { background: var(--wpba-coral); color: #8f2545; }
+.wpb-admin .wpb-admin-day-closed { background: var(--wpba-coral); color: #4b5563; }
 .wpb-admin .wpb-admin-day-closed span { color: inherit; }
 .wpb-admin .wpb-admin-day:hover, .wpb-admin .wpb-admin-day[aria-current] { background: var(--wpba-sky); border-color: var(--wpba-blue); }
 .wpb-admin .wpb-admin-agenda { margin: 0; }
@@ -84,9 +87,9 @@
 .wpb-admin .wpb-admin-pending { background: #fff0d5; color: #6d4110; }
 .wpb-admin .wpb-admin-confirmed { background: var(--wpba-sky); color: var(--wpba-blue); }
 .wpb-admin .wpb-admin-completed { background: #e1f5e9; color: #195a3e; }
-.wpb-admin .wpb-admin-cancelled { background: var(--wpba-coral); color: #8f2545; }
+.wpb-admin .wpb-admin-cancelled { background: var(--wpba-coral); color: #4b5563; }
 .wpb-admin .wpb-admin-dialog { width: min(calc(100% - 20px), 520px); max-height: calc(100% - 20px); padding: 22px; border: 1px solid var(--wpba-border); border-radius: 20px; background: #fff; color: var(--wpba-ink); overflow: auto; }
-.wpb-admin .wpb-admin-dialog::backdrop { background: #29243166; }
+.wpb-admin .wpb-admin-dialog::backdrop { background: #0006; }
 .wpb-admin .wpb-admin-booking-dialog { width: min(calc(100% - 20px), 880px); }
 .wpb-admin .wpb-admin-dialog .wpb-admin-card { box-shadow: none; padding: 0; border: 0; }
 .wpb-admin .wpb-admin-close { position: absolute; top: 6px; inset-inline-end: 6px; width: 32px; height: 32px; border-radius: 50%; border: 1px solid var(--wpba-border); background: #fff; color: var(--wpba-ink); cursor: pointer; font-size: 18px; }
@@ -100,7 +103,7 @@
 .wpb-admin .wpb-admin-booking-section, .wpb-admin .wpb-admin-service-rules { margin: 12px 0; padding: 10px; background: var(--wpba-cream); border: 1px solid var(--wpba-border); border-radius: 9px; }
 .wpb-admin .wpb-admin-booking-section summary, .wpb-admin .wpb-admin-service-rules summary { cursor: pointer; font-weight: 700; }
 .wpb-admin .wpb-admin-booking-section :is(label, input, select) { display: block; margin: 5px 0; }
-.wpb-admin .wpb-admin-expired, .wpb-admin .wpb-admin-no_show { background: var(--wpba-coral); color: #8f2545; }
+.wpb-admin .wpb-admin-expired, .wpb-admin .wpb-admin-no_show { background: var(--wpba-coral); color: #4b5563; }
 
 @media (max-width: 850px) {
 	.wpb-admin .wpb-admin-calendar-columns { grid-template-columns: minmax(0, 1fr); }
@@ -112,3 +115,52 @@
 	.wpb-admin .wpb-admin-tabs a { padding: 5px 8px; }
 	.wpb-admin .wpb-admin-dialog { padding: 14px; }
 }
+
+.wpb-admin { width: calc(100% - 20px); }
+.wpb-admin :is(h1,h2,h3,.wpb-admin-brand,.wpb-admin-metric p,.wpb-admin-day strong,.wpb-admin-status,.wpb-amount) { font-family: "General Sans", "Noto Sans TC", system-ui, sans-serif; letter-spacing: -.025em; }
+.wpb-admin .wpb-admin-header { position: sticky; top: 32px; z-index: 4; background: #fff; padding: 15px 20px; border-bottom: 1px solid #f3f4f6; margin-bottom: 0; border-radius: 16px 16px 0 0; }
+.wpb-admin .wpb-admin-brand { font-size: 16px; gap: 8px; }
+.wpb-admin .wpb-admin-logo { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 8px; background: #000; color: #fff; }
+.wpb-admin .wpb-admin-tabs, .wpb-admin .wpb-admin-views { display: flex; flex-wrap: nowrap; width: 100%; gap: 0; padding: 0 8px; border: 1px solid #e5e7eb; border-radius: 0 0 16px 16px; overflow-x: auto; background: #fff; box-shadow: none; }
+.wpb-admin .wpb-admin-views { margin-bottom: 14px; border-radius: 12px; }
+.wpb-admin :is(.wpb-admin-tabs,.wpb-admin-views) a { display: inline-flex; align-items: center; gap: 6px; min-height: 48px; padding: 8px 14px; border-radius: 0; border-block-end: 2px solid transparent; color: #4b5563; font-weight: 600; text-decoration: none; white-space: nowrap; transition: border-color .2s, color .2s; }
+.wpb-admin :is(.wpb-admin-tabs,.wpb-admin-views) [aria-current] { background: #fff; border-color: #000; color: #000; }
+.wpb-admin .wpb-admin-card { border-radius: 24px; box-shadow: 0 1px 2px #0000000d; }
+.wpb-admin .wpb-admin-metrics { grid-template-columns: repeat(3,minmax(0,1fr)); }
+.wpb-admin .wpb-admin-metrics .wpb-admin-card { border-radius: 16px; padding: 18px; }
+.wpb-admin .wpb-admin-metric:first-child { grid-column: span 2; }
+.wpb-admin .wpb-admin-metric p { font-size: 32px; line-height: 1.2; }
+.wpb-admin .wpb-admin-card + .wpb-admin-card:not(.wpb-admin-metric), .wpb-admin .wpb-availability { margin-top: 14px; }
+.wpb-admin .wpb-admin-btn { min-height: 48px; border-radius: 12px; font-weight: 600; transition: background .2s, border-color .2s; }
+.wpb-admin :is(input:not([type="checkbox"],[type="hidden"],[type="submit"]), select, textarea):not(.wpb *) { min-height: 48px; max-width: 100%; padding: 10px 13px; border-radius: 12px; }
+.wpb-admin .wpb-admin-filters, .wpb-admin .wpb-admin-form-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); align-items: end; gap: 10px 14px; }
+.wpb-admin :is(.wpb-admin-filters,.wpb-admin-form-grid) label { margin: 0; min-width: 0; }
+.wpb-admin :is(.wpb-admin-filters,.wpb-admin-form-grid) label > :is(input,select) { display: block; width: 100%; margin: 5px 0 0; }
+.wpb-admin .wpb-admin-facets { gap: 5px; }
+.wpb-admin .wpb-admin-overflow { border-radius: 12px; scrollbar-color: #737373 #f3f4f6; }
+.wpb-admin .wpb-admin-overflow table { min-width: 670px; }
+.wpb-admin .wpb-admin-overflow :is(th,td) { padding: 14px 12px; border-bottom: 1px solid #f3f4f6; }
+.wpb-admin .wpb-scroll-hint { margin: 6px 0; font-size: 12px; transition: opacity .2s; }
+.wpb-admin .wpb-scroll-hint[data-end] { opacity: .65; }
+.wpb-admin .wpb-admin-status { display: inline-flex; align-items: center; gap: 6px; padding: 4px 12px; color: #4b5563; background: #f3f4f6; font-size: 12px; letter-spacing: normal; }
+.wpb-admin .wpb-admin-status::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: #9ca3af; }
+.wpb-admin :is(.wpb-admin-confirmed,.wpb-admin-completed) { background: #f0fdf4; color: #15803d; }
+.wpb-admin :is(.wpb-admin-confirmed,.wpb-admin-completed)::before { background: #22c55e; }
+.wpb-admin .wpb-week-board { display: grid; grid-template-columns: repeat(7,minmax(135px,1fr)); min-width: 945px; border: 1px solid #e5e7eb; border-radius: 12px; }
+.wpb-admin .wpb-week-day { min-width: 0; padding: 10px; border-inline-end: 1px solid #e5e7eb; }
+.wpb-admin .wpb-week-day:last-child { border: 0; }
+.wpb-admin .wpb-week-day[aria-current] { background: #f9fafb; box-shadow: inset 0 3px #000; }
+.wpb-admin .wpb-week-day h3 { margin: 0; }
+.wpb-admin .wpb-week-day p { font-size: 12px; }
+.wpb-admin .wpb-week-day .wpb-admin-agenda li { display: block; }
+.wpb-admin .wpb-week-day .wpb-admin-status { margin-top: 5px; }
+.wpb-admin .wpb-credit { padding: 20px 0 4px; margin-top: 18px; border-top: 1px solid #e5e7eb; color: #4b5563; font-size: 12px; }
+@media (max-width: 782px) { .wpb-admin .wpb-admin-header { top: 46px; } }
+@media (max-width: 600px) {
+	.wpb-admin .wpb-admin-header { position: static; }
+	.wpb-admin .wpb-admin-metrics, .wpb-admin .wpb-admin-filters, .wpb-admin .wpb-admin-form-grid { grid-template-columns: minmax(0,1fr); }
+	.wpb-admin .wpb-admin-metric:first-child { grid-column: auto; }
+}
+@media (prefers-reduced-motion: reduce) { .wpb-admin *, .wpb-admin *::before { transition: none !important; } }
+
+.wpb-admin [hidden] { display: none !important; }

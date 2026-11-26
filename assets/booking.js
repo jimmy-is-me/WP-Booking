@@ -80,7 +80,7 @@
 			slotRequest?.abort();
 			slot = undefined;
 			slots.replaceChildren();
-			contactNext.disabled = true;
+			if (contactNext) contactNext.disabled = true;
 			message('date-label', date ? `${date} 可預約時段` : '可預約時段');
 			message('slot-message', '請先選擇日期。');
 		}
@@ -216,6 +216,13 @@
 				}
 				message('slot-message', available.slots.length ? '' : '當天已無可預約時段，請選擇其他日期。');
 				for (const item of available.slots) {
+					if (!contactNext) {
+						const label = document.createElement('span');
+						label.className = 'wpb-slot wpb-slot-label';
+						label.textContent = item.label;
+						slots.append(label);
+						continue;
+					}
 					const choice = makeChoice(item.label, 'wpb-slot');
 					choice.addEventListener('click', () => {
 						slot = item;
@@ -257,8 +264,8 @@
 		part('next').addEventListener('click', () => moveMonth(1));
 		part('retry-month').addEventListener('click', loadMonth);
 		part('back-service').addEventListener('click', () => showPhase(1));
-		part('back-date').addEventListener('click', () => showPhase(2));
-		contactNext.addEventListener('click', () => {
+		part('back-date')?.addEventListener('click', () => showPhase(2));
+		contactNext?.addEventListener('click', () => {
 			message('summary-service', service.name);
 			message('summary-time', `${date} ${slot.label}`);
 			message('summary-duration', `${service.duration} 分鐘`);
@@ -268,7 +275,7 @@
 			showPhase(3);
 		});
 
-		form.addEventListener('submit', async (event) => {
+		form?.addEventListener('submit', async (event) => {
 			event.preventDefault();
 			if (submitting || phase !== 3 || !slot || !service) {
 				return;
