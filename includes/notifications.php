@@ -62,6 +62,7 @@ function stop_booking_cron(): void {
 
 function notice_types(): array {
 	return array(
+		'resent'       => '最新預約通知',
 		'created'      => '新預約',
 		'confirmed'    => '預約確認',
 		'cancelled'    => '預約取消',
@@ -70,6 +71,10 @@ function notice_types(): array {
 		'remind_day'   => '24 小時提醒',
 		'remind_soon'  => '2 小時提醒',
 	);
+}
+
+function booking_attendance( array $booking ): string {
+	return (string) ( services()[ $booking['service_id'] ]['attendance'] ?? '' );
 }
 
 function send_notice( array $booking, string $admin_email = '', string $kind = 'created', array $before = array(), int $due = 0 ): bool {
@@ -90,14 +95,20 @@ function send_notice( array $booking, string $admin_email = '', string $kind = '
 	$recorded = true;
 	if ( is_email( $booking['customer_email'] ) ) {
 		$message = "您好，{$booking['customer_name']}：\n\n{$summary}";
-		if ( 'created' === $kind && 'pending' === $booking['status'] ) {
+		if ( in_array( $kind, array( 'created', 'resent' ), true ) && 'pending' === $booking['status'] ) {
 			$message .= "\n\n此預約已送出，請等候確認通知。";
 			if ( ! empty( $booking['hold_until'] ) ) {
 				$message .= "\n確認期限：" . wp_date( 'Y/m/d H:i', (int) $booking['hold_until'], new \DateTimeZone( $booking['timezone'] ) );
 			}
 		}
+		if ( 'confirmed' === $booking['status'] ) {
+			$attendance = booking_attendance( $booking );
+			if ( '' !== $attendance ) {
+				$message .= "\n\n出席資訊：" . $attendance;
+			}
+		}
 		if ( in_array( $booking['status'], array( 'pending', 'confirmed' ), true ) && (int) $booking['starts_at'] > time() ) {
-			$message .= "\n\n管理預約：" . management_link( $booking );
+			$message .= "\n\n管理預約與下載行事曆：" . management_link( $booking );
 		}
 		$recorded = deliver_notice( $booking, $kind, 'customer', $booking['customer_email'], "[{$site}] {$type} {$booking['reference']}", $message, $due );
 	}
@@ -115,17 +126,24 @@ function deliver_notice( array $booking, string $kind, string $recipient, string
 		"INSERT IGNORE INTO {$table} (booking_id, revision, kind, recipient, due_at, sent_at, state) VALUES (%d, %d, %s, %s, %d, %d, 'sending')",
 		$booking['id'], $booking['revision'], $kind, $recipient, $due, time()
 	) );
+	if ( 0 === $claimed && 'resent' === $kind ) {
+		$claimed = $wpdb->query( $wpdb->prepare(
+			"UPDATE {$table} SET state = 'sending', sent_at = %d, detail = ''
+			 WHERE booking_id = %d AND revision = %d AND kind = %s AND recipient = %s AND sent_at <= %d",
+			time(), $booking['id'], $booking['revision'], $kind, $recipient, time() - MINUTE_IN_SECONDS
+		) );
+	}
 	if ( 1 !== $claimed ) {
 		// A duplicate has already been claimed. Retry only if the log write itself failed.
-		return 0 === $claimed;
+		return 'resent' !== $kind && 0 === $claimed;
 	}
-	$id = (int) $wpdb->insert_id;
+	$row_key = array( 'booking_id' => $booking['id'], 'revision' => $booking['revision'], 'kind' => $kind, 'recipient' => $recipient );
 	$latest = find_booking( (int) $booking['id'] );
 	if ( ! $latest || (int) $latest['revision'] !== (int) $booking['revision']
 		|| ( 'customer' === $recipient && $latest['customer_email'] !== $email )
 		|| ( $due && (int) $latest['starts_at'] <= time() ) ) {
-		$wpdb->update( $table, array( 'state' => 'skipped', 'detail' => '預約已變更或提醒已過期。', 'sent_at' => time() ), array( 'id' => $id ) );
-		return true;
+		$wpdb->update( $table, array( 'state' => 'skipped', 'detail' => '預約已變更或提醒已過期。', 'sent_at' => time() ), $row_key );
+		return 'resent' !== $kind;
 	}
 	$error_code = '';
 	$capture = static function ( \WP_Error $error ) use ( &$error_code ): void {
@@ -141,8 +159,8 @@ function deliver_notice( array $booking, string $kind, string $recipient, string
 		remove_action( 'wp_mail_failed', $capture );
 	}
 	$detail = $accepted ? '' : ( $error_code ?: 'wp_mail_failed' );
-	$wpdb->update( $table, array( 'state' => $accepted ? 'accepted' : 'failed', 'detail' => $detail, 'sent_at' => time() ), array( 'id' => $id ) );
-	return true;
+	$wpdb->update( $table, array( 'state' => $accepted ? 'accepted' : 'failed', 'detail' => $detail, 'sent_at' => time() ), $row_key );
+	return 'resent' !== $kind || $accepted;
 }
 
 function run_booking_cron(): void {
@@ -160,7 +178,7 @@ function run_booking_cron(): void {
 	}
 	foreach ( array( 'remind_day', 'remind_soon' ) as $field ) {
 		$rows = $wpdb->get_results( $wpdb->prepare(
-			"SELECT id, reference, revision, status, service_name, starts_at, ends_at, timezone, price, customer_name, customer_email, {$field}
+			"SELECT id, reference, revision, status, service_id, service_name, starts_at, ends_at, timezone, price, customer_name, customer_email, {$field}
 			FROM {$table} WHERE status = 'confirmed' AND {$field} > 0 AND {$field} <= %d ORDER BY {$field} LIMIT 50", $now
 		), ARRAY_A );
 		foreach ( $rows as $booking ) {
@@ -173,6 +191,7 @@ function run_booking_cron(): void {
 			) );
 		}
 	}
+	update_option( 'wpb_last_cron', time(), false );
 }
 
 function booking_notices( array $booking_ids ): array {
@@ -193,4 +212,45 @@ function booking_notices( array $booking_ids ): array {
 		}
 	}
 	return $grouped;
+}
+
+function resend_booking_notice( int $id ) {
+	$booking = find_booking( $id );
+	if ( ! $booking || ! is_email( $booking['customer_email'] ) ) {
+		return new \WP_Error( 'wpb_no_email', '這筆預約沒有可用的收件地址。' );
+	}
+	if ( pending_expired( $booking, time() ) ) {
+		$booking['status'] = 'expired';
+	}
+	return send_notice( $booking, '', 'resent' ) ? true
+		: new \WP_Error( 'wpb_mail', '通知未寄出。請查看寄送紀錄，並間隔至少一分鐘再重試。' );
+}
+
+function unresolved_mail_query(): string {
+	$notices = notice_table();
+	$bookings = booking_table();
+	return "SELECT DISTINCT n.booking_id FROM {$notices} n INNER JOIN {$bookings} b ON b.id = n.booking_id AND b.revision = n.revision
+		WHERE n.state = 'failed' AND NOT EXISTS (
+			SELECT 1 FROM {$notices} r WHERE r.booking_id = n.booking_id AND r.revision = n.revision
+			AND r.recipient = n.recipient AND r.kind = 'resent' AND r.state = 'accepted' AND r.sent_at >= n.sent_at
+		)";
+}
+
+function render_booking_health(): void {
+	$last = (int) get_option( 'wpb_last_cron', 0 );
+	$next = wp_next_scheduled( CRON_HOOK );
+	?>
+	<section class="wpb-admin-card">
+		<h2>通知與排程檢測</h2>
+		<p>上次完成排程：<?php echo esc_html( $last ? wp_date( 'Y/m/d H:i:s', $last ) : '尚無紀錄' ); ?></p>
+		<p>下次預定執行：<?php echo esc_html( $next ? wp_date( 'Y/m/d H:i:s', $next ) : '未排程' ); ?></p>
+		<?php if ( $next && $next < time() - 10 * MINUTE_IN_SECONDS ) : ?>
+			<p>排程已落後超過十分鐘，請檢查網站 WP-Cron 或主機排程。</p>
+		<?php endif; ?>
+		<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
+			<?php admin_form_fields( 'test_mail', 'wpb-test-mail' ); ?>
+			<button class="wpb-admin-btn" type="submit">寄測試信到我的帳號信箱</button>
+		</form>
+	</section>
+	<?php
 }

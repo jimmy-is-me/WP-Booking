@@ -18,12 +18,17 @@ function render_admin_overview(): void {
 		AND (status <> 'pending' OR hold_until = 0 OR hold_until > %d)",
 		$today->getTimestamp(), $today->modify( 'tomorrow' )->getTimestamp(), $now->getTimestamp()
 	) );
-	$pending = $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$table} WHERE status = 'pending' AND (hold_until = 0 OR hold_until > %d)", $now->getTimestamp() ) );
-	$estimate = $wpdb->get_var( $wpdb->prepare(
-		"SELECT SUM(price) FROM {$table} WHERE starts_at >= %d AND starts_at < %d AND status NOT IN ('cancelled','expired','no_show')
-		AND (status <> 'pending' OR hold_until = 0 OR hold_until > %d)",
+	$review = $wpdb->get_row( $wpdb->prepare(
+		"SELECT SUM(starts_at >= %d) AS upcoming, SUM(starts_at < %d) AS overdue
+		 FROM {$table} WHERE status = 'pending' AND (hold_until = 0 OR hold_until > %d)",
+		$now->getTimestamp(), $now->getTimestamp(), $now->getTimestamp()
+	), ARRAY_A );
+	$amounts = $wpdb->get_results( $wpdb->prepare(
+		"SELECT status, SUM(price) AS amount FROM {$table} WHERE starts_at >= %d AND starts_at < %d
+		 AND status IN ('pending','confirmed','completed') AND (status <> 'pending' OR hold_until = 0 OR hold_until > %d) GROUP BY status",
 		$month->getTimestamp(), $month->modify( 'first day of next month' )->getTimestamp(), $now->getTimestamp()
-	) );
+	), OBJECT_K );
+	$mail = $wpdb->get_col( unresolved_mail_query() );
 	$upcoming = $wpdb->get_results( $wpdb->prepare(
 		"SELECT reference, service_name, starts_at, ends_at, timezone, status, customer_name, hold_until
 		FROM {$table} WHERE starts_at >= %d AND (status = 'confirmed' OR (status = 'pending' AND (hold_until = 0 OR hold_until > %d)))
@@ -37,17 +42,26 @@ function render_admin_overview(): void {
 			<h2>今日預約數</h2><p><?php echo esc_html( number_format_i18n( (int) $daily ) ); ?></p>
 			<a href="<?php echo esc_url( admin_url_for( array( 'tab' => 'calendar', 'day' => $today->format( 'Y-m-d' ) ) ) ); ?>">查看今日排程 →</a>
 		</div>
+		<?php foreach ( array( 'upcoming' => '即將到期待確認', 'overdue' => '已過時待處理' ) as $queue => $label ) : ?>
+			<div class="wpb-admin-card wpb-admin-metric">
+				<h2><?php echo esc_html( $label ); ?></h2><p><?php echo esc_html( number_format_i18n( (int) ( $review[ $queue ] ?? 0 ) ) ); ?></p>
+				<a href="<?php echo esc_url( admin_url_for( array( 'tab' => 'bookings', 'status' => 'pending', 'queue' => $queue ) ) ); ?>">前往處理 →</a>
+			</div>
+		<?php endforeach; ?>
 		<div class="wpb-admin-card wpb-admin-metric">
-			<span class="wpb-admin-icon wpb-admin-icon-coral"><?php echo wpb_icon( 'bookings' ); ?></span>
-			<h2>待審核訂單</h2><p><?php echo esc_html( number_format_i18n( (int) $pending ) ); ?></p>
-			<a href="<?php echo esc_url( admin_url_for( array( 'tab' => 'bookings', 'status' => 'pending' ) ) ); ?>">前往審核 →</a>
-		</div>
-		<div class="wpb-admin-card wpb-admin-metric">
-			<span class="wpb-admin-icon"><?php echo wpb_icon( 'overview' ); ?></span>
-			<h2>本月預估營收</h2><p><?php echo esc_html( null === $estimate ? '—' : booking_price( $estimate ) ); ?></p>
-			<small>加總本月有效預約的服務費，排除取消、逾時與未到場</small>
+			<h2>寄送失敗的預約</h2><p><?php echo esc_html( number_format_i18n( count( $mail ) ) ); ?></p>
+			<a href="<?php echo esc_url( admin_url_for( array( 'tab' => 'bookings', 'queue' => 'failed_mail' ) ) ); ?>">查看寄送紀錄 →</a>
 		</div>
 	</div>
+	<section class="wpb-admin-card">
+		<h2>本月服務金額</h2>
+		<dl>
+			<?php foreach ( array( 'pending' => '待確認金額', 'confirmed' => '已確認服務金額', 'completed' => '已完成服務金額' ) as $status => $label ) : ?>
+				<dt><?php echo esc_html( $label ); ?></dt>
+				<dd><?php echo esc_html( isset( $amounts[ $status ]->amount ) ? booking_price( $amounts[ $status ]->amount ) : '—' ); ?></dd>
+			<?php endforeach; ?>
+		</dl>
+	</section>
 	<section class="wpb-admin-card">
 		<div class="wpb-admin-section-head">
 			<h2>即將到來的預約</h2>

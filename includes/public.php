@@ -38,7 +38,7 @@ function register_routes(): void {
 		'methods'             => WP_REST_Server::CREATABLE,
 		'callback'            => __NAMESPACE__ . '\\admin_booking_response',
 		'permission_callback' => static function (): bool {
-			return current_user_can( 'manage_options' );
+			return can_manage_bookings();
 		},
 	) );
 }
@@ -138,9 +138,13 @@ function month_response( WP_REST_Request $request ) {
 		return new WP_Error( 'wpb_selection', '請選擇預約範圍內的月份與有效的服務。', array( 'status' => 400 ) );
 	}
 
+	return month_availability( $first, (int) $service['duration'], $config, $now );
+}
+
+function month_availability( DateTimeImmutable $first, int $duration, array $config, DateTimeImmutable $now, int $exclude = 0, int $original = 0 ) {
+	$limits = calendar_limits( $config, $now );
 	$days = array();
 	$starts = array();
-	$duration = (int) $service['duration'];
 	$last = $first->modify( 'first day of next month' );
 	for ( $day = $first; $day < $last; $day = $day->modify( 'tomorrow' ) ) {
 		$date = $day->format( 'Y-m-d' );
@@ -155,13 +159,15 @@ function month_response( WP_REST_Request $request ) {
 		$times = scheduled_slots( $day, $duration, $config, $now );
 		$days[ $date ] = $times ? 'full' : 'outside';
 		foreach ( $times as $timestamp => $label ) {
-			$starts[ $timestamp ] = $date;
+			if ( $timestamp !== $original ) {
+				$starts[ $timestamp ] = $date;
+			}
 		}
 	}
 	if ( $starts ) {
 		$before = $config['buffer_before'] * MINUTE_IN_SECONDS;
 		$after = ( $duration + $config['buffer_after'] ) * MINUTE_IN_SECONDS;
-		$busy = overlaps( array_key_first( $starts ) - $before, array_key_last( $starts ) + $after );
+		$busy = overlaps( array_key_first( $starts ) - $before, array_key_last( $starts ) + $after, $exclude );
 		if ( is_wp_error( $busy ) ) {
 			return $busy;
 		}

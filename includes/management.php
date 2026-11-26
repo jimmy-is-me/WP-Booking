@@ -96,7 +96,7 @@ function register_management_routes(): void {
 		'methods'             => 'POST',
 		'callback'            => __NAMESPACE__ . '\\admin_management_response',
 		'permission_callback' => static function (): bool {
-			return current_user_can( 'manage_options' );
+			return can_manage_bookings();
 		},
 	) );
 }
@@ -133,6 +133,9 @@ function management_response( array $booking, array $payload, string $key = '' )
 	$config = rescheduling_rules( $booking );
 	$move = '' === $key ? may_reschedule( $booking ) : can_manage_action( $booking, $config, 'move', $now );
 	$cancel = '' !== $key && can_manage_action( $booking, $config, 'cancel', $now );
+	$local_now = new DateTimeImmutable( 'now', wp_timezone() );
+	$limits = calendar_limits( $config, $local_now );
+	$duration = intdiv( (int) $booking['ends_at'] - (int) $booking['starts_at'], MINUTE_IN_SECONDS );
 	if ( 'details' === $action ) {
 		return array(
 			'reference' => $booking['reference'],
@@ -142,8 +145,21 @@ function management_response( array $booking, array $payload, string $key = '' )
 			'revision'  => (int) $booking['revision'],
 			'move'      => $move,
 			'cancel'    => $cancel,
-			'dates'     => calendar_limits( $config, new DateTimeImmutable( 'now', wp_timezone() ) ),
+			'dates'     => $limits,
+			'calendar'  => 'confirmed' === $booking['status'] ? array(
+				'start' => (int) $booking['starts_at'],
+				'end' => (int) $booking['ends_at'],
+				'attendance' => booking_attendance( $booking ),
+			) : null,
 		);
+	}
+	if ( 'month' === $action && $move ) {
+		$month = $payload['month'] ?? null;
+		$first = is_string( $month ) ? calendar_date( $month . '-01', wp_timezone() ) : null;
+		if ( ! $first || $month < substr( $limits['min'], 0, 7 ) || $month > substr( $limits['max'], 0, 7 ) ) {
+			return new WP_Error( 'wpb_date', '請選擇可預約範圍內的月份。', array( 'status' => 400 ) );
+		}
+		return month_availability( $first, $duration, $config, $local_now, (int) $booking['id'], (int) $booking['starts_at'] );
 	}
 	if ( 'slots' === $action && $move ) {
 		$date = $payload['date'] ?? null;
@@ -151,7 +167,6 @@ function management_response( array $booking, array $payload, string $key = '' )
 		if ( ! $day ) {
 			return new WP_Error( 'wpb_date', '請選擇有效日期。', array( 'status' => 400 ) );
 		}
-		$duration = intdiv( (int) $booking['ends_at'] - (int) $booking['starts_at'], MINUTE_IN_SECONDS );
 		$available = slots_for_day( $day, $duration, $config, (int) $booking['id'] );
 		if ( is_wp_error( $available ) ) {
 			return $available;
@@ -219,9 +234,19 @@ function render_management_form( int $id = 0 ): void {
 		<p data-wpb-manage-message role="status"><?php echo $id ? '' : '載入預約資料…'; ?></p>
 		<?php if ( ! $id ) : ?><noscript>請啟用 JavaScript 以管理預約。</noscript><?php endif; ?>
 		<div data-wpb-manage-summary hidden></div>
+		<p data-wpb-attendance hidden></p>
+		<button type="button" class="wpb-button wpb-secondary" data-wpb-ics hidden>下載行事曆（ICS）</button>
 		<form data-wpb-move hidden>
-			<label>新日期 <input type="date" name="new_date" required></label>
+			<p data-wpb-original></p>
+			<div class="wpb-manage-month">
+				<button type="button" class="wpb-button wpb-secondary" data-wpb-prev>上個月</button>
+				<strong data-wpb-month-label aria-live="polite"></strong>
+				<button type="button" class="wpb-button wpb-secondary" data-wpb-next>下個月</button>
+			</div>
+			<div class="wpb-manage-days" data-wpb-days aria-label="可改期日期"></div>
+			<input type="hidden" name="new_date">
 			<label>新時段 <select name="new_slot" required disabled><option value="">請先選日期</option></select></label>
+			<p data-wpb-new-time hidden></p>
 			<button type="submit" class="<?php echo $id ? 'wpb-admin-btn wpb-admin-primary' : 'wpb-button'; ?>" disabled>確認改期</button>
 		</form>
 		<div data-wpb-cancel hidden>

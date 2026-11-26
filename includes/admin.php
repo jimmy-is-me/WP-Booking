@@ -13,8 +13,18 @@ function admin_url_for( array $args = array() ): string {
 	return add_query_arg( array( 'page' => 'wp-booking' ) + $encoded, admin_url( 'admin.php' ) );
 }
 
+function can_manage_bookings(): bool {
+	return current_user_can( 'manage_options' ) || current_user_can( 'wpb_manage_bookings' );
+}
+
+function register_booking_role(): void {
+	if ( ! get_role( 'wpb_booking_staff' ) ) {
+		add_role( 'wpb_booking_staff', '預約人員', array( 'read' => true, 'wpb_manage_bookings' => true ) );
+	}
+}
+
 function register_admin(): void {
-	$screen = add_menu_page( 'WP Booking', '預約管理', 'manage_options', 'wp-booking', __NAMESPACE__ . '\\render_admin', 'dashicons-calendar-alt' );
+	$screen = add_menu_page( 'WP Booking', '預約管理', current_user_can( 'manage_options' ) ? 'manage_options' : 'wpb_manage_bookings', 'wp-booking', __NAMESPACE__ . '\\render_admin', 'dashicons-calendar-alt' );
 	if ( $screen ) {
 		add_action( 'load-' . $screen, static function (): void {
 			wp_enqueue_style( 'wp-booking-admin', plugins_url( 'assets/admin.css', FILE ), array(), VERSION );
@@ -29,7 +39,7 @@ function read_field( array $source, string $key ): string {
 }
 
 function render_admin(): void {
-	if ( ! current_user_can( 'manage_options' ) ) {
+	if ( ! can_manage_bookings() ) {
 		return;
 	}
 
@@ -40,6 +50,9 @@ function render_admin(): void {
 		'services' => '服務項目管理',
 		'settings' => '排程與系統設定',
 	);
+	if ( ! current_user_can( 'manage_options' ) ) {
+		unset( $tabs['services'], $tabs['settings'] );
+	}
 	$tab = read_field( $_GET, 'tab' );
 	$has_filter = array_intersect( array( 'q', 'status', 'from', 'to', 'paged' ), array_keys( $_GET ) );
 	$tab = isset( $tabs[ $tab ] ) ? $tab : ( $has_filter ? 'bookings' : 'overview' );
@@ -64,6 +77,9 @@ function render_admin(): void {
 		<?php if ( '1' === read_field( $_GET, 'wpb_saved' ) ) : ?>
 			<div class="notice notice-success is-dismissible"><p>已儲存。</p></div>
 		<?php endif; ?>
+		<?php if ( 'mail' === read_field( $_GET, 'wpb_saved' ) ) : ?>
+			<div class="notice notice-success is-dismissible"><p>WordPress 寄信系統已接受通知。</p></div>
+		<?php endif; ?>
 		<?php if ( SCHEMA_VERSION !== (int) get_option( SCHEMA_OPTION ) ) : ?>
 			<div class="notice notice-error"><p>無法建立預約資料表，請檢查 WordPress 資料庫權限。</p></div>
 		<?php endif; ?>
@@ -71,6 +87,7 @@ function render_admin(): void {
 		if ( 'services' === $tab ) {
 			render_services();
 		} elseif ( 'settings' === $tab ) {
+			render_booking_health();
 			render_settings();
 		} elseif ( 'calendar' === $tab ) {
 			render_admin_calendar();
@@ -96,10 +113,13 @@ function admin_form_fields( string $operation, string $nonce ): void {
 }
 
 function handle_admin(): void {
-	if ( ! current_user_can( 'manage_options' ) ) {
+	if ( ! can_manage_bookings() ) {
 		wp_die( '您沒有管理預約的權限。', '', array( 'response' => 403 ) );
 	}
 	$operation = read_field( $_POST, 'operation' );
+	if ( in_array( $operation, array( 'services', 'settings', 'test_mail' ), true ) && ! current_user_can( 'manage_options' ) ) {
+		wp_die( '您沒有調整系統設定的權限。', '', array( 'response' => 403 ) );
+	}
 	$tab = $operation;
 	switch ( $operation ) {
 		case 'services':
@@ -110,6 +130,19 @@ function handle_admin(): void {
 		case 'settings':
 			check_admin_referer( 'wpb-settings' );
 			$result = save_settings( $_POST );
+			break;
+		case 'test_mail':
+			check_admin_referer( 'wpb-test-mail' );
+			$tab = 'settings';
+			$user = wp_get_current_user();
+			$result = wp_mail( $user->user_email, 'WP Booking 測試通知', '這是您在預約管理後台要求寄出的測試信。' )
+				? true : new WP_Error( 'wpb_mail', 'WordPress 未接受測試信，請檢查網站 SMTP 設定。' );
+			break;
+		case 'resend':
+			$tab = 'bookings';
+			$id = (int) read_field( $_POST, 'booking_id' );
+			check_admin_referer( 'wpb-resend-' . $id );
+			$result = resend_booking_notice( $id );
 			break;
 		case 'status':
 			$tab = 'bookings';
@@ -130,8 +163,8 @@ function handle_admin(): void {
 		wp_die( esc_html( $result->get_error_message() ), '無法儲存', array( 'response' => 400, 'back_link' => true ) );
 	}
 
-	$target = in_array( $operation, array( 'status', 'note' ), true ) && wp_get_referer() ? wp_get_referer() : admin_url_for( array( 'tab' => $tab ) );
-	wp_safe_redirect( add_query_arg( 'wpb_saved', '1', $target ), 303 );
+	$target = in_array( $operation, array( 'status', 'note', 'resend' ), true ) && wp_get_referer() ? wp_get_referer() : admin_url_for( array( 'tab' => $tab ) );
+	wp_safe_redirect( add_query_arg( 'wpb_saved', in_array( $operation, array( 'test_mail', 'resend' ), true ) ? 'mail' : '1', $target ), 303 );
 	exit;
 }
 
@@ -162,6 +195,9 @@ function save_service( string $id, array $posted ) {
 	if ( '' !== $price && ( ! ctype_digit( $price ) || (int) $price > 9999999 ) ) {
 		return new WP_Error( 'wpb_service_price', '服務費用須為 0 至 9,999,999 元的整數。' );
 	}
+	if ( text_size( read_field( $posted, 'attendance' ) ) > 500 ) {
+		return new WP_Error( 'wpb_attendance', '出席資訊最多 500 字。' );
+	}
 	$rules = service_rules_fields( $posted );
 	if ( is_wp_error( $rules ) ) {
 		return $rules;
@@ -182,6 +218,7 @@ function save_service( string $id, array $posted ) {
 			'description' => $description,
 			'duration'    => (int) $duration,
 			'price'       => '' === $price ? null : (int) $price,
+			'attendance'  => sanitize_textarea_field( read_field( $posted, 'attendance' ) ),
 			'enabled'     => '1' === read_field( $posted, 'enabled' ),
 		) + $rules;
 		return $items === $original || update_option( SERVICES_OPTION, $items, false ) ? true : storage_error();
@@ -240,6 +277,7 @@ function render_service_form( string $id, array $service ): void {
 		<input type="hidden" name="service_id" value="<?php echo esc_attr( $id ); ?>">
 		<label>服務名稱<input type="text" name="name" maxlength="120" required value="<?php echo esc_attr( $service['name'] ); ?>"></label>
 		<label>服務簡介（選填）<textarea name="description" rows="3" maxlength="500"><?php echo esc_textarea( $service['description'] ); ?></textarea></label>
+		<label>服務地點或線上會議資訊（選填，確認後提供）<textarea name="attendance" rows="2" maxlength="500"><?php echo esc_textarea( $service['attendance'] ?? '' ); ?></textarea></label>
 		<label>所需時間（分鐘）<input type="number" name="duration" required min="15" max="480" step="15" value="<?php echo esc_attr( $service['duration'] ); ?>"></label>
 		<label>服務費用（NT$，選填）<input type="number" name="price" min="0" max="9999999" step="1" value="<?php echo esc_attr( $service['price'] ?? '' ); ?>"></label>
 		<details class="wpb-admin-service-rules">
@@ -445,8 +483,18 @@ function render_bookings(): void {
 	$where = array( '1=1' );
 	$args = array();
 	$filters = array();
+	$queue = read_field( $_GET, 'queue' );
 
 	$now = time();
+	if ( in_array( $queue, array( 'upcoming', 'overdue' ), true ) ) {
+		$where[] = 'upcoming' === $queue ? 'starts_at >= %d' : 'starts_at < %d';
+		$args[] = $now;
+		$filters['queue'] = $queue;
+	}
+	if ( 'failed_mail' === $queue ) {
+		$where[] = 'id IN (' . unresolved_mail_query() . ')';
+		$filters['queue'] = $queue;
+	}
 	if ( 'expired' === $status ) {
 		$where[] = "(status = 'expired' OR (status = 'pending' AND hold_until > 0 AND hold_until <= %d))";
 		$args[] = $now;
@@ -481,9 +529,10 @@ function render_bookings(): void {
 	$total = (int) $wpdb->get_var( $args ? $wpdb->prepare( $count_sql, $args ) : $count_sql );
 	$max_page = max( 1, (int) ceil( $total / $per_page ) );
 	$page = min( $page, $max_page );
+	$order = "CASE WHEN starts_at >= %d THEN 0 ELSE 1 END, CASE WHEN starts_at >= %d THEN starts_at END ASC, starts_at DESC, id DESC";
 	$rows = $wpdb->get_results( $wpdb->prepare(
-		"SELECT * {$sql} ORDER BY starts_at DESC, id DESC LIMIT %d OFFSET %d",
-		array_merge( $args, array( $per_page, ( $page - 1 ) * $per_page ) )
+		"SELECT * {$sql} ORDER BY {$order} LIMIT %d OFFSET %d",
+		array_merge( $args, array( $now, $now, $per_page, ( $page - 1 ) * $per_page ) )
 	), ARRAY_A );
 	?>
 	<div class="wpb-admin-section-head"><h2>預約訂單列表</h2></div>
@@ -498,6 +547,7 @@ function render_bookings(): void {
 	<form class="wpb-admin-filters" method="get" action="<?php echo esc_url( admin_url( 'admin.php' ) ); ?>">
 		<input type="hidden" name="page" value="wp-booking">
 		<input type="hidden" name="tab" value="bookings">
+		<?php if ( isset( $filters['queue'] ) ) : ?><input type="hidden" name="queue" value="<?php echo esc_attr( $queue ); ?>"><?php endif; ?>
 		<label>搜尋預約<input type="search" name="q" maxlength="100" placeholder="編號、姓名或電子郵件" value="<?php echo esc_attr( $query ); ?>"></label>
 		<label>狀態<select name="status">
 			<option value="">全部狀態</option>
@@ -624,6 +674,13 @@ function render_booking_activity( array $booking, array $notices ): void {
 			<?php if ( ! $notices && empty( $booking['remind_day'] ) && empty( $booking['remind_soon'] ) ) : ?><li>目前沒有排程或寄送紀錄。</li><?php endif; ?>
 		</ul>
 		<?php if ( in_array( 'failed', array_column( $notices, 'state' ), true ) ) : ?><p>寄信失敗時可查看網站 SMTP 外掛的記錄。</p><?php endif; ?>
+		<?php if ( is_email( $booking['customer_email'] ) ) : ?>
+			<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
+				<?php admin_form_fields( 'resend', 'wpb-resend-' . $booking['id'] ); ?>
+				<input type="hidden" name="booking_id" value="<?php echo esc_attr( $booking['id'] ); ?>">
+				<button class="wpb-admin-btn" type="submit">重寄最新預約通知</button>
+			</form>
+		<?php endif; ?>
 	</details>
 	<?php if ( $history ) : ?>
 		<details class="wpb-admin-booking-section">

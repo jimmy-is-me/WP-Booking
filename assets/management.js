@@ -13,7 +13,13 @@
 		const cancelButton = cancel.querySelector('[data-wpb-cancel-submit]');
 		const id = Number(root.dataset.wpbId);
 		const credentials = id ? { id } : { key: window.location.hash.slice(1) };
-		let revision, slotRequest;
+		const days = root.querySelector('[data-wpb-days]');
+		const previousMonth = root.querySelector('[data-wpb-prev]');
+		const nextMonth = root.querySelector('[data-wpb-next]');
+		const newTime = root.querySelector('[data-wpb-new-time]');
+		const attendance = root.querySelector('[data-wpb-attendance]');
+		const calendarButton = root.querySelector('[data-wpb-ics]');
+		let revision, slotRequest, monthRequest, limits, month, detailsRequest, calendarData;
 
 		async function request(action, data = {}, signal) {
 			const headers = { 'Content-Type': 'application/json', 'X-WPB-Request': '1' };
@@ -33,6 +39,11 @@
 
 		async function load() {
 			slotRequest?.abort();
+			monthRequest?.abort();
+			detailsRequest?.abort();
+			const controller = new AbortController();
+			detailsRequest = controller;
+			attendance.hidden = calendarButton.hidden = newTime.hidden = true;
 			message.textContent = '載入預約資料…';
 			move.hidden = true;
 			cancel.hidden = true;
@@ -45,26 +56,89 @@
 			slot.disabled = true;
 			submit.disabled = true;
 			try {
-				const data = await request('details');
+				const data = await request('details', {}, controller.signal);
+				if (controller.signal.aborted) return;
 				revision = data.revision;
 				summary.textContent = [data.reference, data.service, data.time, data.status].join(' · ');
 				summary.hidden = Boolean(id);
-				date.min = data.dates.min;
-				date.max = data.dates.max;
+				limits = data.dates;
+				month = limits.min.slice(0, 7);
+				root.querySelector('[data-wpb-original]').textContent = '原時段：' + data.time;
+				calendarData = data;
+				attendance.textContent = data.calendar?.attendance || '';
+				attendance.hidden = Boolean(id) || !attendance.textContent;
+				calendarButton.hidden = Boolean(id) || !data.calendar;
 				move.hidden = !data.move;
 				cancel.hidden = !data.cancel;
 				message.textContent = data.move || data.cancel ? '' : '目前已超過可自行變更的期限，或店家未開放這項操作。';
+				if (data.move) loadMonth();
 			} catch (error) {
+				if (!controller.signal.aborted) message.textContent = error.message;
+			}
+		}
+
+		function monthStart(offset = 0) {
+			const start = new Date(month + '-01T00:00:00Z');
+			start.setUTCMonth(start.getUTCMonth() + offset);
+			return start;
+		}
+
+		async function loadMonth() {
+			monthRequest?.abort();
+			slotRequest?.abort();
+			date.value = '';
+			slot.disabled = submit.disabled = newTime.hidden = true;
+			slot.replaceChildren(new Option('請先選日期', ''));
+			days.replaceChildren();
+			const controller = new AbortController();
+			monthRequest = controller;
+			const first = monthStart();
+			const last = monthStart(1);
+			root.querySelector('[data-wpb-month-label]').textContent = first.getUTCFullYear() + ' 年 ' + (first.getUTCMonth() + 1) + ' 月';
+			previousMonth.disabled = month <= limits.min.slice(0, 7);
+			nextMonth.disabled = month >= limits.max.slice(0, 7);
+			message.textContent = '正在查詢可改期日期…';
+			try {
+				const result = await request('month', { month }, controller.signal);
+				if (controller.signal.aborted) return;
+				for (let index = 0; index < first.getUTCDay(); index++) days.append(document.createElement('span'));
+				const labels = { available: '可選', closed: '公休', full: '額滿或無其他時段', outside: '不可選' };
+				for (const day = first; day < last; day.setUTCDate(day.getUTCDate() + 1)) {
+					const key = day.toISOString().slice(0, 10);
+					const status = result.days[key] || 'outside';
+					const button = document.createElement('button');
+					button.type = 'button';
+					button.className = 'wpb-day wpb-' + status;
+					button.textContent = day.getUTCDate();
+					button.disabled = status !== 'available';
+					button.setAttribute('aria-label', key + ' ' + labels[status]);
+					button.setAttribute('aria-pressed', 'false');
+					button.addEventListener('click', () => {
+						days.querySelector('[aria-pressed="true"]')?.setAttribute('aria-pressed', 'false');
+						button.setAttribute('aria-pressed', 'true');
+						date.value = key;
+						loadSlots();
+					});
+					days.append(button);
+				}
+				message.textContent = Object.values(result.days).includes('available') ? '' : '本月沒有可改期日期。';
+			} catch (error) {
+				if (controller.signal.aborted) return;
+				const retry = document.createElement('button');
+				retry.type = 'button';
+				retry.textContent = '重新查詢日期';
+				retry.addEventListener('click', loadMonth, { once: true });
 				message.textContent = error.message;
+				message.append(' ', retry);
 			}
 		}
 
 		async function loadSlots() {
 			slotRequest?.abort();
 			slot.disabled = true;
-			submit.disabled = true;
+			submit.disabled = newTime.hidden = true;
 			slot.replaceChildren(new Option('請選擇時段', ''));
-			if (!date.value || !date.validity.valid) {
+			if (!date.value) {
 				return;
 			}
 			const controller = new AbortController();
@@ -89,7 +163,7 @@
 
 		async function finish(action, data) {
 			slotRequest?.abort();
-			const controls = [date, slot, submit, cancelButton];
+			const controls = [slot, submit, cancelButton, previousMonth, nextMonth, ...days.querySelectorAll('button')];
 			const disabled = controls.map((control) => control.disabled);
 			controls.forEach((control) => { control.disabled = true; });
 			message.textContent = '正在處理…';
@@ -101,7 +175,7 @@
 				}
 				move.hidden = true;
 				cancel.hidden = true;
-				summary.hidden = true;
+				summary.hidden = attendance.hidden = calendarButton.hidden = true;
 				message.textContent = [result.message, result.time].filter(Boolean).join(' ');
 			} catch (error) {
 				message.textContent = error.message;
@@ -116,8 +190,18 @@
 			}
 		}
 
-		date.addEventListener('change', loadSlots);
-		slot.addEventListener('change', () => { submit.disabled = !slot.value; });
+
+		for (const [button, offset] of [[previousMonth, -1], [nextMonth, 1]]) {
+			button.addEventListener('click', () => {
+				month = monthStart(offset).toISOString().slice(0, 7);
+				loadMonth();
+			});
+		}
+		slot.addEventListener('change', () => {
+			submit.disabled = newTime.hidden = !slot.value;
+			newTime.textContent = '新時段：' + date.value + ' ' + slot.selectedOptions[0].text;
+		});
+		calendarButton.addEventListener('click', () => downloadCalendar(calendarData));
 		move.addEventListener('submit', (event) => {
 			event.preventDefault();
 			if (slot.value) {
@@ -150,6 +234,41 @@
 		} else {
 			load();
 		}
+	}
+
+	function downloadCalendar({ calendar, reference, service, revision }) {
+		const stamp = (seconds) => new Date(seconds * 1000).toISOString().replace(/[-:]|\.\d{3}/g, '');
+		const escape = (value) => value.replace(/\\/g, '\\\\').replace(/\r?\n/g, '\\n').replace(/[,;]/g, (character) => '\\' + character).replace(/\r/g, '');
+		const lines = [
+			'BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//WUMETAX//WP Booking//ZH',
+			'BEGIN:VEVENT', 'UID:' + reference + '@' + location.hostname, 'SEQUENCE:' + revision,
+			'DTSTAMP:' + stamp(Date.now() / 1000),
+			'DTSTART:' + stamp(calendar.start), 'DTEND:' + stamp(calendar.end),
+			'SUMMARY:' + escape(service),
+			'DESCRIPTION:' + escape([reference, calendar.attendance].filter(Boolean).join('\n')),
+			'END:VEVENT', 'END:VCALENDAR',
+		];
+		const encoder = new TextEncoder();
+		const folded = lines.map((line) => {
+			let result = '';
+			let width = 0;
+			for (const character of line) {
+				const size = encoder.encode(character).length;
+				if (width + size > 75) {
+					result += '\r\n ';
+					width = 1;
+				}
+				result += character;
+				width += size;
+			}
+			return result;
+		});
+		const url = URL.createObjectURL(new Blob([folded.join('\r\n') + '\r\n'], { type: 'text/calendar;charset=utf-8' }));
+		const link = document.createElement('a');
+		link.href = url;
+		link.download = reference + '.ics';
+		link.click();
+		setTimeout(() => URL.revokeObjectURL(url), 30_000);
 	}
 
 	document.querySelectorAll('[data-wpb-manage]').forEach(mount);
