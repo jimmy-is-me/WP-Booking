@@ -2,7 +2,7 @@
 /**
  * Plugin Name: WP Booking
  * Description: 繁體中文線上預約、服務排程、預約管理與電子郵件通知。
- * Version: 1.4.4
+ * Version: 1.5.0
  * Requires at least: 6.5
  * Requires PHP: 7.4
  * Author: WUMETAX 末特數位科技
@@ -16,7 +16,7 @@ namespace Wumetax\Booking;
 
 defined( 'ABSPATH' ) || exit;
 
-const VERSION = '1.4.4';
+const VERSION = '1.5.0';
 const FILE    = __FILE__;
 
 require_once __DIR__ . '/includes/schedule.php';
@@ -27,6 +27,7 @@ require_once __DIR__ . '/includes/public.php';
 require_once __DIR__ . '/includes/admin.php';
 require_once __DIR__ . '/includes/admin-calendar.php';
 require_once __DIR__ . '/includes/privacy.php';
+require_once __DIR__ . '/includes/receipts.php';
 require_once __DIR__ . '/includes/licensing.php';
 
 register_activation_hook( FILE, __NAMESPACE__ . '\\install_schema' );

@@ -44,21 +44,27 @@ function render_admin_overview(): void {
 		</div>
 		<?php foreach ( array( 'upcoming' => '即將到期待確認', 'overdue' => '已過時待處理' ) as $queue => $label ) : ?>
 			<div class="wpb-admin-card wpb-admin-metric">
+				<span class="wpb-admin-icon <?php echo 'overdue' === $queue ? 'wpb-icon-alert' : 'wpb-icon-pending'; ?>"><?php echo wpb_icon( 'overdue' === $queue ? 'alert' : 'clock' ); ?></span>
 				<h2><?php echo esc_html( $label ); ?></h2><p><?php echo esc_html( number_format_i18n( (int) ( $review[ $queue ] ?? 0 ) ) ); ?></p>
 				<a href="<?php echo esc_url( admin_url_for( array( 'tab' => 'bookings', 'status' => 'pending', 'queue' => $queue ) ) ); ?>">前往處理 →</a>
 			</div>
 		<?php endforeach; ?>
 		<div class="wpb-admin-card wpb-admin-metric">
+			<span class="wpb-admin-icon wpb-icon-mail"><?php echo wpb_icon( 'mail' ); ?></span>
 			<h2>寄送失敗的預約</h2><p><?php echo esc_html( number_format_i18n( count( $mail ) ) ); ?></p>
 			<a href="<?php echo esc_url( admin_url_for( array( 'tab' => 'bookings', 'queue' => 'failed_mail' ) ) ); ?>">查看寄送紀錄 →</a>
 		</div>
 	</div>
 	<section class="wpb-admin-card">
 		<h2>本月服務金額</h2>
-		<dl>
+		<p>依預約狀態統計服務費用。</p>
+		<dl class="wpb-admin-amounts">
 			<?php foreach ( array( 'pending' => '待確認金額', 'confirmed' => '已確認服務金額', 'completed' => '已完成服務金額' ) as $status => $label ) : ?>
-				<dt><?php echo esc_html( $label ); ?></dt>
-				<dd><?php echo esc_html( isset( $amounts[ $status ]->amount ) ? booking_price( $amounts[ $status ]->amount ) : '—' ); ?></dd>
+				<div class="wpb-admin-amount">
+					<span class="wpb-admin-icon wpb-icon-<?php echo esc_attr( $status ); ?>"><?php echo wpb_icon( 'amount' ); ?></span>
+					<dt><?php echo esc_html( $label ); ?></dt>
+					<dd><?php echo esc_html( isset( $amounts[ $status ]->amount ) ? booking_price( $amounts[ $status ]->amount ) : '—' ); ?></dd>
+				</div>
 			<?php endforeach; ?>
 		</dl>
 	</section>
@@ -260,7 +266,8 @@ function render_availability_form( DateTimeImmutable $day ): void {
 	$config = settings();
 	?>
 	<section class="wpb-admin-card wpb-availability">
-		<h2>管理可預約日期與時段</h2>
+		<h2>臨時停約與時段封鎖</h2>
+		<p>臨時休假可選「整天停約」。午休、會議或現場保留可選「封鎖指定時段」，例如 14:00–15:00。這裡會調整該日期所有服務的開放時段。</p>
 		<p>目前 <?php echo esc_html( $date . ' · ' . format_opening_hours( opening_hours( $day, $config ) ) ); ?>。變更只影響之後的預約與改期，已存在的預約照原時段保留。</p>
 		<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" data-wpb-availability>
 			<?php admin_form_fields( 'availability', 'wpb-availability' ); ?>

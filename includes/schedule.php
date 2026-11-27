@@ -104,6 +104,9 @@ function calendar_limits( array $config, DateTimeImmutable $now ): array {
 }
 
 function service_schedule( array $config, array $service ): array {
+	$config['capacity'] = (int) ( $service['capacity'] ?? 1 );
+	$config['capacity_unit'] = $service['capacity_unit'] ?? 'bookings';
+	$config['calendar_mode'] = $service['calendar_mode'] ?? 'shared';
 	$config['lead_minutes'] = $service['lead_minutes'] ?? $config['lead_minutes'];
 	$config['horizon_days'] = $service['horizon_days'] ?? $config['horizon_days'];
 	$config['buffer_before'] = (int) ( $service['buffer_before'] ?? 0 );

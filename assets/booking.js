@@ -223,7 +223,8 @@
 						slots.append(label);
 						continue;
 					}
-					const choice = makeChoice(item.label, 'wpb-slot');
+					const label = service.capacity_unit === 'people' ? item.label + ' · 剩 ' + item.remaining + ' 人' : item.label;
+					const choice = makeChoice(label, 'wpb-slot');
 					choice.addEventListener('click', () => {
 						slot = item;
 						choose(slots, choice);
@@ -266,6 +267,10 @@
 		part('back-service').addEventListener('click', () => showPhase(1));
 		part('back-date')?.addEventListener('click', () => showPhase(2));
 		contactNext?.addEventListener('click', () => {
+			const byPerson = service.capacity_unit === 'people';
+			part('party-field').hidden = !byPerson;
+			form.elements.party_size.max = byPerson ? slot.remaining : 1;
+			form.elements.party_size.value = Math.min(Number(form.elements.party_size.value) || 1, Number(form.elements.party_size.max));
 			message('summary-service', service.name);
 			message('summary-time', `${date} ${slot.label}`);
 			message('summary-duration', `${service.duration} 分鐘`);
@@ -284,6 +289,7 @@
 				...Object.fromEntries(new FormData(form)),
 				service_id: service.id, starts_at: slot.start,
 				expected_duration: service.duration, expected_price: service.price_amount,
+				party_size: Number(form.elements.party_size.value),
 			};
 			const signature = JSON.stringify(payload);
 			const controls = Array.from(form.elements).filter((control) => !control.disabled);
@@ -315,6 +321,8 @@
 					已確認: '預約已登記，請依預約時段出席。',
 				};
 				message('result-message', descriptions[confirmation.status] || '請查看目前的預約狀態。');
+				message('result-party', String(confirmation.party_size));
+				root.querySelector('[data-wpb-qr]').dispatchEvent(new CustomEvent('wpb:receipt', { detail: confirmation.receipt }));
 				form.reset();
 				previousRequest = undefined;
 				showPhase(4);

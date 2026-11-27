@@ -8,6 +8,7 @@
 		const cancel = root.querySelector('[data-wpb-cancel]');
 		const date = move.elements.new_date;
 		const slot = move.elements.new_slot;
+		const slotGrid = move.querySelector('[data-wpb-manage-slots]');
 		const submit = move.querySelector('[type="submit"]');
 		const confirmBox = cancel.querySelector('[data-wpb-cancel-confirm]');
 		const cancelButton = cancel.querySelector('[data-wpb-cancel-submit]');
@@ -52,8 +53,8 @@
 			cancelButton.disabled = false;
 			date.disabled = false;
 			move.reset();
-			slot.replaceChildren(new Option('請先選日期', ''));
-			slot.disabled = true;
+			slot.value = '';
+			slotGrid.textContent = '請先選日期';
 			submit.disabled = true;
 			try {
 				const data = await request('details', {}, controller.signal);
@@ -87,7 +88,7 @@
 			monthRequest?.abort();
 			slotRequest?.abort();
 			date.value = '';
-			slot.disabled = submit.disabled = newTime.hidden = true;
+			submit.disabled = newTime.hidden = true;
 			slot.replaceChildren(new Option('請先選日期', ''));
 			days.replaceChildren();
 			const controller = new AbortController();
@@ -135,9 +136,9 @@
 
 		async function loadSlots() {
 			slotRequest?.abort();
-			slot.disabled = true;
 			submit.disabled = newTime.hidden = true;
-			slot.replaceChildren(new Option('請選擇時段', ''));
+			slot.value = '';
+			slotGrid.replaceChildren();
 			if (!date.value) {
 				return;
 			}
@@ -150,9 +151,20 @@
 					return;
 				}
 				for (const entry of data.slots) {
-					slot.add(new Option(entry.label, entry.start));
+					const button = document.createElement('button');
+					button.type = 'button';
+					button.className = 'wpb-slot';
+					button.textContent = entry.label;
+					button.setAttribute('aria-pressed', 'false');
+					button.addEventListener('click', () => {
+						slotGrid.querySelector('[aria-pressed="true"]')?.setAttribute('aria-pressed', 'false');
+						button.setAttribute('aria-pressed', 'true');
+						slot.value = entry.start;
+						submit.disabled = newTime.hidden = false;
+						newTime.textContent = '新時段：' + date.value + ' ' + entry.label;
+					});
+					slotGrid.append(button);
 				}
-				slot.disabled = !data.slots.length;
 				message.textContent = data.slots.length ? '' : '這天沒有可改期的時段。';
 			} catch (error) {
 				if (!controller.signal.aborted) {
@@ -163,7 +175,7 @@
 
 		async function finish(action, data) {
 			slotRequest?.abort();
-			const controls = [slot, submit, cancelButton, previousMonth, nextMonth, ...days.querySelectorAll('button')];
+			const controls = [submit, cancelButton, previousMonth, nextMonth, ...days.querySelectorAll('button'), ...slotGrid.querySelectorAll('button')];
 			const disabled = controls.map((control) => control.disabled);
 			controls.forEach((control) => { control.disabled = true; });
 			message.textContent = '正在處理…';
@@ -197,10 +209,6 @@
 				loadMonth();
 			});
 		}
-		slot.addEventListener('change', () => {
-			submit.disabled = newTime.hidden = !slot.value;
-			newTime.textContent = '新時段：' + date.value + ' ' + slot.selectedOptions[0].text;
-		});
 		calendarButton.addEventListener('click', () => downloadCalendar(calendarData));
 		move.addEventListener('submit', (event) => {
 			event.preventDefault();

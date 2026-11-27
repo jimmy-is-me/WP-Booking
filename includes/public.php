@@ -63,6 +63,7 @@ function calendar_response(): array {
 				'description'  => $service['description'],
 				'duration'     => (int) $service['duration'],
 				'price'        => isset( $service['price'] ) ? booking_price( $service['price'] ) : null,
+				'capacity_unit' => $service['capacity_unit'] ?? 'bookings',
 				'price_amount' => isset( $service['price'] ) ? (int) $service['price'] : null,
 				'dates'        => calendar_limits( service_schedule( $config, $service ), $now ),
 			);
@@ -85,10 +86,10 @@ function slots_response( WP_REST_Request $request ) {
 		return new WP_Error( 'wpb_selection', '請選擇有效的服務與日期。', array( 'status' => 400 ) );
 	}
 
-	return slots_for_day( $day, (int) $service['duration'], service_schedule( settings(), $service ) );
+	return slots_for_day( $day, (int) $service['duration'], service_schedule( settings(), $service ) + array( 'service_id' => $id ) );
 }
 
-function slots_for_day( DateTimeImmutable $day, int $duration, array $config, int $exclude = 0 ) {
+function slots_for_day( DateTimeImmutable $day, int $duration, array $config, int $exclude = 0, int $party_size = 1 ) {
 	$now = new DateTimeImmutable( 'now', $day->getTimezone() );
 	$starts = scheduled_slots( $day, $duration, $config, $now );
 	if ( ! $starts ) {
@@ -103,24 +104,14 @@ function slots_for_day( DateTimeImmutable $day, int $duration, array $config, in
 	}
 
 	$slots = array();
-	foreach ( free_starts( $starts, $after, $busy, $before ) as $timestamp => $label ) {
-		$slots[] = array( 'start' => $timestamp, 'label' => $label );
+	$services = services();
+	foreach ( $starts as $timestamp => $label ) {
+		$remaining = remaining_capacity( $timestamp - $before, $timestamp + $after, $busy, $config, $services );
+		if ( $remaining >= required_capacity( $config, $party_size ) ) {
+			$slots[] = array( 'start' => $timestamp, 'label' => $label, 'remaining' => $remaining );
+		}
 	}
 	return array( 'slots' => $slots );
-}
-
-/** Filter chronological starts against chronological shared calendar bookings. */
-function free_starts( array $starts, int $end_offset, array $busy, int $before = 0 ): array {
-	$index = 0;
-	foreach ( $starts as $timestamp => $label ) {
-		while ( isset( $busy[ $index ] ) && (int) $busy[ $index ]['ends_at'] <= $timestamp - $before ) {
-			++$index;
-		}
-		if ( isset( $busy[ $index ] ) && $timestamp + $end_offset > (int) $busy[ $index ]['starts_at'] ) {
-			unset( $starts[ $timestamp ] );
-		}
-	}
-	return $starts;
 }
 
 function month_response( WP_REST_Request $request ) {
@@ -130,7 +121,7 @@ function month_response( WP_REST_Request $request ) {
 	$timezone = wp_timezone();
 	$first = is_string( $month ) ? calendar_date( $month . '-01', $timezone ) : null;
 	$service = is_string( $id ) ? services()[ $id ] ?? null : null;
-	$config = service_schedule( settings(), $service ?? array() );
+	$config = service_schedule( settings(), $service ?? array() ) + array( 'service_id' => $id );
 	$now = new DateTimeImmutable( 'now', $timezone );
 	$limits = calendar_limits( $config, $now );
 	if ( ! $first || ! $service || ! $service['enabled']
@@ -141,7 +132,7 @@ function month_response( WP_REST_Request $request ) {
 	return month_availability( $first, (int) $service['duration'], $config, $now );
 }
 
-function month_availability( DateTimeImmutable $first, int $duration, array $config, DateTimeImmutable $now, int $exclude = 0, int $original = 0 ) {
+function month_availability( DateTimeImmutable $first, int $duration, array $config, DateTimeImmutable $now, int $exclude = 0, int $original = 0, int $party_size = 1 ) {
 	$limits = calendar_limits( $config, $now );
 	$days = array();
 	$starts = array();
@@ -171,8 +162,11 @@ function month_availability( DateTimeImmutable $first, int $duration, array $con
 		if ( is_wp_error( $busy ) ) {
 			return $busy;
 		}
-		foreach ( free_starts( $starts, $after, $busy, $before ) as $date ) {
-			$days[ $date ] = 'available';
+		$services = services();
+		foreach ( $starts as $timestamp => $date ) {
+			if ( 'available' !== $days[ $date ] && remaining_capacity( $timestamp - $before, $timestamp + $after, $busy, $config, $services ) >= required_capacity( $config, $party_size ) ) {
+				$days[ $date ] = 'available';
+			}
 		}
 	}
 	return array( 'days' => $days );
@@ -236,6 +230,13 @@ function validate_booking( array $payload ) {
 		$input['expected_duration'] = $payload['expected_duration'];
 		$input['expected_price'] = $expected_price;
 	}
+	$party = $payload['party_size'] ?? 1;
+	if ( ! is_int( $party ) || $party < 1 || $party > 100 ) {
+		return new WP_Error( 'wpb_party', '請輸入有效的預約人數。', array( 'status' => 400 ) );
+	}
+	if ( $party > 1 ) {
+		$input['party_size'] = $party;
+	}
 	return $input;
 }
 
@@ -273,6 +274,8 @@ function create_booking_response( WP_REST_Request $request, string $rate_key = '
 	$status = pending_expired( $booking, time() ) ? 'expired' : $booking['status'];
 	return new WP_REST_Response( array(
 		'reference' => $booking['reference'],
+		'receipt' => receipt_link( $booking ),
+		'party_size' => (int) ( $booking['party_size'] ?? 1 ),
 		'service'   => $booking['service_name'],
 		'status'    => status_labels()[ $status ],
 		'time'      => booking_time( $booking ),
@@ -304,9 +307,7 @@ function render_availability(): string {
 }
 
 function booking_wizard( bool $admin = false, string $selected_date = '', bool $availability = false ): string {
-	if ( ! $admin && ! $availability && ! booking_license_is_active() ) {
-		return '<p class="wpb-message" role="status">目前暫停接受新預約，請聯絡店家。</p>';
-	}
+	$accepting = $admin || $availability || booking_license_is_active();
 	wp_enqueue_style( 'wp-booking' );
 	wp_enqueue_script( 'wp-booking' );
 	$id = wp_unique_id( 'wpb-' );
@@ -315,7 +316,7 @@ function booking_wizard( bool $admin = false, string $selected_date = '', bool $
 	ob_start();
 	?>
 	<section class="wpb<?php echo $admin ? ' wpb-compact' : ' wpb-embedded'; ?>" aria-labelledby="<?php echo esc_attr( $id . '-title' ); ?>"
-		data-wpb-calendar="<?php echo esc_url( rest_url( API . '/calendar' ) ); ?>"
+		<?php if ( $accepting ) : ?>data-wpb-calendar="<?php echo esc_url( rest_url( API . '/calendar' ) ); ?>"<?php endif; ?>
 		data-wpb-month="<?php echo esc_url( rest_url( API . '/month' ) ); ?>"
 		data-wpb-slots="<?php echo esc_url( rest_url( API . '/slots' ) ); ?>"
 		<?php if ( ! $availability ) : ?>data-wpb-bookings="<?php echo esc_url( rest_url( API . ( $admin ? '/admin-bookings' : '/bookings' ) ) ); ?>"<?php endif; ?>
@@ -333,6 +334,13 @@ function booking_wizard( bool $admin = false, string $selected_date = '', bool $
 				<h2 id="<?php echo esc_attr( $id . '-title' ); ?>"><?php echo $availability ? '可預約時段' : '線上預約'; ?></h2>
 			<?php endif; ?>
 		</header>
+		<?php if ( ! $admin && ! $availability ) : ?>
+			<details class="wpb-lookup">
+				<summary>我的預約</summary>
+				<?php render_receipt_panel(); ?>
+			</details>
+		<?php endif; ?>
+		<?php if ( $accepting ) : ?>
 		<noscript><p class="wpb-message">請啟用 JavaScript 以使用預約表單。</p></noscript>
 		<p class="wpb-message" data-wpb="calendar-message" role="status" hidden></p>
 		<button class="wpb-button wpb-secondary" type="button" data-wpb="retry" hidden>重新載入</button>
@@ -383,6 +391,7 @@ function booking_wizard( bool $admin = false, string $selected_date = '', bool $
 						<div class="wpb-contact-fields">
 							<label class="wpb-field"><span>姓名</span><input name="customer_name" autocomplete="<?php echo $admin ? 'off' : 'name'; ?>" maxlength="100" required></label>
 							<label class="wpb-field"><span>電子郵件</span><input type="email" name="customer_email" autocomplete="<?php echo $admin ? 'off' : 'email'; ?>" maxlength="254" required></label>
+							<label class="wpb-field" data-wpb="party-field" hidden><span>預約人數</span><input name="party_size" type="number" value="1" min="1" max="100" step="1"></label>
 							<label class="wpb-field"><span>電話 <small>選填</small></span><input type="tel" name="customer_phone" autocomplete="<?php echo $admin ? 'off' : 'tel'; ?>" maxlength="40"></label>
 							<label class="wpb-field"><span>備註 <small>選填</small></span><textarea name="note" rows="3" maxlength="500"></textarea></label>
 							<div hidden><input name="website" tabindex="-1" autocomplete="off" aria-label="請留空"></div>
@@ -414,8 +423,10 @@ function booking_wizard( bool $admin = false, string $selected_date = '', bool $
 					<div><dt>預約服務</dt><dd data-wpb="service"></dd></div>
 					<div><dt>日期與時段</dt><dd data-wpb="time"></dd></div>
 					<div><dt>預約狀態</dt><dd data-wpb="status"></dd></div>
+					<div><dt>人數</dt><dd data-wpb="result-party"></dd></div>
 					<div data-wpb="result-price-row" hidden><dt>服務費用</dt><dd data-wpb="result-price"></dd></div>
 				</dl>
+				<?php render_booking_qr(); ?>
 				<?php if ( $admin ) : ?>
 					<a class="wpb-button" href="<?php echo esc_url( admin_url_for( array( 'tab' => 'bookings' ) ) ); ?>">返回預約訂單列表</a>
 				<?php else : ?>
@@ -424,6 +435,9 @@ function booking_wizard( bool $admin = false, string $selected_date = '', bool $
 			</div>
 			<?php endif; ?>
 		</div>
+		<?php else : ?>
+			<p class="wpb-message" role="status">目前暫停接受新預約，請聯絡店家。</p>
+		<?php endif; ?>
 		<?php if ( ! $admin ) : ?>
 			<?php powered_by(); ?>
 		<?php endif; ?>
@@ -438,6 +452,10 @@ function powered_by(): void {
 
 function wpb_icon( string $name ): string {
 	$paths = array(
+		'clock' => '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+		'alert' => '<circle cx="12" cy="12" r="9"/><path d="M12 7v6m0 3h.01"/>',
+		'mail' => '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/>',
+		'amount' => '<rect x="2" y="5" width="20" height="14" rx="3"/><circle cx="12" cy="12" r="3"/><path d="M6 12h.01m12 0h.01"/>',
 		'calendar' => '<rect x="3" y="5" width="18" height="16" rx="3"/><path d="M8 3v4m8-4v4M3 10h18m-13 5h2m4 0h2"/>',
 		'overview' => '<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>',
 		'bookings' => '<rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h8m-8 4h8m-8 4h5"/>',

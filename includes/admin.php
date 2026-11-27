@@ -122,6 +122,17 @@ function render_admin(): void {
 					href="<?php echo esc_url( admin_url_for( array( 'tab' => $key ) ) ); ?>"><?php echo wpb_icon( $key ); ?><?php echo esc_html( $label ); ?></a>
 			<?php endforeach; ?>
 		</nav>
+		<?php
+		$error_id = read_field( $_GET, 'wpb_error' );
+		if ( wp_is_uuid( $error_id, 4 ) ) :
+			$error_key = 'wpb_error_' . get_current_user_id() . '_' . $error_id;
+			$error = get_transient( $error_key );
+			delete_transient( $error_key );
+			if ( is_string( $error ) ) :
+				?><div class="notice notice-error is-dismissible" role="alert"><p><?php echo esc_html( $error ); ?></p></div><?php
+			endif;
+		endif;
+		?>
 		<?php if ( '1' === read_field( $_GET, 'wpb_saved' ) ) : ?>
 			<div class="notice notice-success is-dismissible"><p>已儲存。</p></div>
 		<?php endif; ?>
@@ -207,6 +218,12 @@ function handle_admin(): void {
 			$tab = 'calendar';
 			$result = save_availability( $_POST );
 			break;
+		case 'check_in':
+			$tab = 'bookings';
+			$id = (int) read_field( $_POST, 'booking_id' );
+			check_admin_referer( 'wpb-check-in-' . $id );
+			$result = check_in_booking( $id );
+			break;
 		case 'status':
 			$tab = 'bookings';
 			$id = (int) read_field( $_POST, 'booking_id' );
@@ -222,11 +239,15 @@ function handle_admin(): void {
 		default:
 			wp_die( '無法辨識管理操作。', '', array( 'response' => 400 ) );
 	}
+	$target = wp_get_referer() ?: admin_url_for( array( 'tab' => $tab ) );
+	$target = remove_query_arg( array( 'wpb_saved', 'wpb_error' ), $target );
 	if ( is_wp_error( $result ) ) {
-		wp_die( esc_html( $result->get_error_message() ), '無法儲存', array( 'response' => 400, 'back_link' => true ) );
+		$error_id = wp_generate_uuid4();
+		set_transient( 'wpb_error_' . get_current_user_id() . '_' . $error_id, $result->get_error_message(), 2 * MINUTE_IN_SECONDS );
+		wp_safe_redirect( add_query_arg( 'wpb_error', $error_id, $target ), 303 );
+		exit;
 	}
 
-	$target = in_array( $operation, array( 'status', 'note', 'resend', 'availability' ), true ) && wp_get_referer() ? wp_get_referer() : admin_url_for( array( 'tab' => $tab ) );
 	wp_safe_redirect( add_query_arg( 'wpb_saved', in_array( $operation, array( 'test_mail', 'resend' ), true ) ? 'mail' : '1', $target ), 303 );
 	exit;
 }
@@ -289,7 +310,15 @@ function save_service( string $id, array $posted ) {
 }
 
 function service_rules_fields( array $posted ) {
-	$values = array();
+	$capacity = read_field( $posted, 'capacity' );
+	$unit = read_field( $posted, 'capacity_unit' ) ?: 'bookings';
+	$mode = read_field( $posted, 'calendar_mode' ) ?: 'shared';
+	$capacity = '' === $capacity ? '1' : $capacity;
+	if ( ! ctype_digit( $capacity ) || (int) $capacity < 1 || (int) $capacity > 100
+		|| ! in_array( $unit, array( 'bookings', 'people' ), true ) || ! in_array( $mode, array( 'shared', 'independent' ), true ) ) {
+		return new WP_Error( 'wpb_capacity', '請設定 1 至 100 的容量及有效的時段模式。' );
+	}
+	$values = array( 'capacity' => (int) $capacity, 'capacity_unit' => $unit, 'calendar_mode' => $mode );
 	foreach ( array( 'buffer_before' => 0, 'buffer_after' => 0, 'lead_minutes' => null, 'horizon_days' => null ) as $key => $default ) {
 		$value = read_field( $posted, $key );
 		if ( '' === $value ) {
@@ -312,7 +341,7 @@ function render_services(): void {
 	$items = services();
 	?>
 	<div class="wpb-admin-section-head">
-		<div><h2>服務項目管理</h2><p>所有服務共用一份行事曆。</p></div>
+		<div><h2>服務項目管理</h2><p>每個服務可設定同時可接的筆數或人數，以及是否與其他服務共用時段。</p></div>
 		<button class="wpb-admin-btn wpb-admin-primary" type="button" data-wpb-dialog="wpb-new-service">＋ 新增服務</button>
 	</div>
 	<div class="wpb-admin-cards">
@@ -344,7 +373,11 @@ function render_service_form( string $id, array $service ): void {
 		<label>所需時間（分鐘）<input type="number" name="duration" required min="15" max="480" step="15" value="<?php echo esc_attr( $service['duration'] ); ?>"></label>
 		<label>服務費用（NT$，選填）<input type="number" name="price" min="0" max="9999999" step="1" value="<?php echo esc_attr( $service['price'] ?? '' ); ?>"></label>
 		<details class="wpb-admin-service-rules">
-			<summary>個別排程規則</summary>
+			<summary>個別排程與容量</summary>
+			<label>同時可預約數量<input type="number" name="capacity" min="1" max="100" step="1" value="<?php echo esc_attr( $service['capacity'] ?? 1 ); ?>" required></label>
+			<label>容量單位<select name="capacity_unit"><option value="bookings" <?php selected( $service['capacity_unit'] ?? 'bookings', 'bookings' ); ?>>預約筆數</option><option value="people" <?php selected( $service['capacity_unit'] ?? '', 'people' ); ?>>人數</option></select></label>
+			<label>時段模式<select name="calendar_mode"><option value="shared" <?php selected( $service['calendar_mode'] ?? 'shared', 'shared' ); ?>>共用時段</option><option value="independent" <?php selected( $service['calendar_mode'] ?? '', 'independent' ); ?>>獨立時段</option></select></label>
+			<p>共用模式下，同時只能接一種共用服務，仍可依該服務容量接多筆。獨立服務可與其他服務同時預約。改設定會套用到之後的預約及改期。</p>
 			<label>服務前緩衝（分鐘）<input type="number" name="buffer_before" min="0" max="120" step="15" value="<?php echo esc_attr( $service['buffer_before'] ?? 0 ); ?>"></label>
 			<label>服務後緩衝（分鐘）<input type="number" name="buffer_after" min="0" max="120" step="15" value="<?php echo esc_attr( $service['buffer_after'] ?? 0 ); ?>"></label>
 			<label>至少提前預約（分鐘）<input type="number" name="lead_minutes" min="0" max="10080" placeholder="沿用全站設定" value="<?php echo esc_attr( $service['lead_minutes'] ?? '' ); ?>"></label>
@@ -730,6 +763,8 @@ function render_booking_detail( array $booking, array $states, array $notices, b
 	$lines = array(
 		'預約時段' => booking_time( $booking ),
 		'服務費用' => booking_price( $booking['price'] ?? null ),
+		'預約人數' => (string) ( $booking['party_size'] ?? 1 ),
+		'報到狀態' => empty( $booking['checked_in_at'] ) ? '未報到' : '已報到 · ' . wp_date( 'Y/m/d H:i', (int) $booking['checked_in_at'] ),
 		'客戶姓名' => $booking['customer_name'],
 		'電子郵件' => $booking['customer_email'],
 		'聯絡電話' => $booking['customer_phone'],
@@ -754,6 +789,19 @@ function render_booking_detail( array $booking, array $states, array $notices, b
 			<?php endforeach; ?>
 		</dl>
 		<?php render_status_form( $booking, $states ); ?>
+		<?php if ( receipt_link( $booking ) ) : ?>
+			<details class="wpb-admin-booking-section">
+				<summary>預約 QR Code 與報到</summary>
+				<?php render_booking_qr( receipt_link( $booking ) ); ?>
+				<?php if ( can_check_in( $booking ) ) : ?>
+					<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
+						<?php admin_form_fields( 'check_in', 'wpb-check-in-' . $booking['id'] ); ?>
+						<input type="hidden" name="booking_id" value="<?php echo esc_attr( $booking['id'] ); ?>">
+						<button type="submit" class="wpb-admin-btn wpb-admin-primary">確認報到</button>
+					</form>
+				<?php endif; ?>
+			</details>
+		<?php endif; ?>
 		<?php if ( may_reschedule( $booking ) ) : ?>
 			<details class="wpb-admin-booking-section">
 				<summary>直接改期</summary>
@@ -777,7 +825,7 @@ function render_booking_activity( array $booking, array $notices ): void {
 	$kinds = notice_types();
 	$labels = array( 'accepted' => '寄信系統已接受', 'failed' => '寄送失敗', 'skipped' => '已略過', 'sending' => '寄送結果待確認' );
 	$history = array_reverse( booking_history( $booking ) );
-	$events = status_labels() + array( 'admin_moved' => '管理員改期', 'customer_moved' => '客戶自行改期' );
+	$events = status_labels() + array( 'checked_in' => '已報到', 'admin_moved' => '管理員改期', 'customer_moved' => '客戶自行改期' );
 	?>
 	<details class="wpb-admin-booking-section">
 		<summary>提醒排程與寄送紀錄</summary>

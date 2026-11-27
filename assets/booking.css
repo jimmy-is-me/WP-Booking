@@ -266,3 +266,34 @@
 	.wpb.wpb-embedded .wpb-service-meta { grid-column: 2; text-align: start; }
 	.wpb.wpb-embedded .wpb-summary > dl > div, .wpb.wpb-embedded dl.wpb-summary > div { padding-inline: 10px; }
 }
+
+.wpb-lookup { margin:0 0 12px; border:1px solid #e5e7eb; background:#fff; border-radius:10px; }
+.wpb-lookup summary { padding:10px 14px; cursor:pointer; font-weight:600; }
+.wpb-lookup [data-wpb-receipt-panel] { padding:0 14px 12px; }
+.wpb-lookup-form { display:grid; grid-template-columns:1fr 1fr auto; gap:10px; align-items:end; }
+.wpb-lookup-form .wpb-field { margin:0; }
+.wpb-receipt-links,.wpb-qr { display:flex; flex-wrap:wrap; align-items:center; gap:10px; }
+.wpb-qr { justify-content:center; margin:12px 0; }
+.wpb-qr canvas { display:block; flex:0 0 auto; margin-inline:calc((100% - 224px) / 2); max-width:min(224px,100%); height:auto; border:1px solid #e5e7eb; border-radius:8px; }
+.wpb-qr[hidden], .wpb-qr [hidden] { display:none !important; }
+.wpb-management-page [data-wpb-receipt-panel] { padding:16px; border:1px solid #e5e7eb; background:#fff; border-radius:12px; }
+.wpb-manage .wpb-manage-days { margin:0; }
+.wpb-manage .wpb-manage-week { text-align:center; font-size:.8rem; color:#475569; }
+.wpb-manage .wpb-manage-days button,.wpb-manage-slots button { min-height:36px; border:1px solid #cbd5e1; border-radius:7px; background:white; color:#0f172a; cursor:pointer; }
+.wpb-manage .wpb-manage-days button:disabled { background:#f3f4f6; color:#6b7280; cursor:default; }
+.wpb-manage .wpb-manage-days button[aria-pressed="true"], .wpb-manage-slots button[aria-pressed="true"] { background:#155e75; color:white; border-color:#155e75; }
+.wpb-manage-slots { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(62px,100%),1fr)); gap:6px; }
+.wpb-manage-slots button { padding:4px; font:inherit; font-variant-numeric:tabular-nums; }
+.wpb-manage [data-wpb-original], .wpb-manage [data-wpb-new-time] { padding:8px; margin:0; border-radius:6px; background:#ecfeff; }
+.wpb.wpb-embedded .wpb-contact-fields > :is(.wpb-field, .wpb-help) { grid-column:auto; }
+.wpb.wpb-embedded .wpb-contact-fields > :is(label:has(textarea), .wpb-help) { grid-column:1 / -1; }
+@media(max-width:600px) {
+	.wpb.wpb-embedded { width:min(100% - 24px,1120px); margin-inline:auto; }
+	.wpb.wpb-embedded .wpb-stage { padding:12px; }
+	.wpb.wpb-embedded .wpb-header { margin-bottom:10px; }
+	.wpb.wpb-embedded .wpb-stepper { grid-template-columns:repeat(4,minmax(0,1fr)); padding:0 4px; }
+	.wpb.wpb-embedded .wpb-stepper-short { grid-template-columns:repeat(2,minmax(0,1fr)); }
+	.wpb.wpb-embedded .wpb-stepper li { min-height:44px; justify-content:center; gap:4px; font-size:clamp(.62rem,2.5vw,.8rem); padding:5px 1px; }
+	.wpb.wpb-embedded .wpb-stepper li span { width:17px; height:17px; flex:0 0 17px; }
+	.wpb-lookup-form { grid-template-columns:1fr; }
+}

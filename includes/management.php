@@ -27,7 +27,7 @@ function management_denied(): WP_Error {
 }
 
 function can_manage_action( array $booking, array $config, string $action, int $now ): bool {
-	return ! empty( $config[ 'self_' . $action ] )
+	return empty( $booking['checked_in_at'] ) && ! empty( $config[ 'self_' . $action ] )
 		&& in_array( $booking['status'], array( 'pending', 'confirmed' ), true )
 		&& ! pending_expired( $booking, $now ) && (int) $booking['starts_at'] > $now
 		&& (int) $booking['starts_at'] - $now >= $config[ $action . '_cutoff' ] * MINUTE_IN_SECONDS;
@@ -35,7 +35,7 @@ function can_manage_action( array $booking, array $config, string $action, int $
 
 function may_reschedule( array $booking ): bool {
 	$now = time();
-	return in_array( $booking['status'], array( 'pending', 'confirmed' ), true )
+	return empty( $booking['checked_in_at'] ) && in_array( $booking['status'], array( 'pending', 'confirmed' ), true )
 		&& (int) $booking['starts_at'] > $now && ! pending_expired( $booking, $now );
 }
 
@@ -43,7 +43,7 @@ function rescheduling_rules( array $booking ): array {
 	$service = services()[ $booking['service_id'] ] ?? array();
 	$service['buffer_before'] = $booking['buffer_before'];
 	$service['buffer_after'] = $booking['buffer_after'];
-	return service_schedule( settings(), $service );
+	return service_schedule( settings(), $service ) + array( 'service_id' => $booking['service_id'] );
 }
 
 function reschedule_booking( int $id, int $start, int $revision, string $credential = '' ) {
@@ -68,8 +68,11 @@ function reschedule_booking( int $id, int $start, int $revision, string $credent
 		}
 		$end = $start + $duration * MINUTE_IN_SECONDS;
 		$busy = overlaps( $start - $config['buffer_before'] * 60, $end + $config['buffer_after'] * 60, (int) $booking['id'] );
-		if ( is_wp_error( $busy ) || $busy ) {
-			return is_wp_error( $busy ) ? $busy : unavailable();
+		if ( is_wp_error( $busy ) ) {
+			return $busy;
+		}
+		if ( remaining_capacity( $start - $config['buffer_before'] * 60, $end + $config['buffer_after'] * 60, $busy, $config, services() ) < required_capacity( $config, (int) $booking['party_size'] ) ) {
+			return unavailable();
 		}
 		return array(
 			'event'      => '' !== $credential ? 'customer_moved' : 'admin_moved',
@@ -159,7 +162,7 @@ function management_response( array $booking, array $payload, string $key = '' )
 		if ( ! $first || $month < substr( $limits['min'], 0, 7 ) || $month > substr( $limits['max'], 0, 7 ) ) {
 			return new WP_Error( 'wpb_date', '請選擇可預約範圍內的月份。', array( 'status' => 400 ) );
 		}
-		return month_availability( $first, $duration, $config, $local_now, (int) $booking['id'], (int) $booking['starts_at'] );
+		return month_availability( $first, $duration, $config, $local_now, (int) $booking['id'], (int) $booking['starts_at'], (int) $booking['party_size'] );
 	}
 	if ( 'slots' === $action && $move ) {
 		$date = $payload['date'] ?? null;
@@ -167,7 +170,7 @@ function management_response( array $booking, array $payload, string $key = '' )
 		if ( ! $day ) {
 			return new WP_Error( 'wpb_date', '請選擇有效日期。', array( 'status' => 400 ) );
 		}
-		$available = slots_for_day( $day, $duration, $config, (int) $booking['id'] );
+		$available = slots_for_day( $day, $duration, $config, (int) $booking['id'], (int) $booking['party_size'] );
 		if ( is_wp_error( $available ) ) {
 			return $available;
 		}
@@ -243,9 +246,12 @@ function render_management_form( int $id = 0 ): void {
 				<strong data-wpb-month-label aria-live="polite"></strong>
 				<button type="button" class="wpb-button wpb-secondary" data-wpb-next>下個月</button>
 			</div>
+			<div class="wpb-manage-days wpb-manage-week" aria-hidden="true"><?php foreach ( array( '日', '一', '二', '三', '四', '五', '六' ) as $label ) : ?><span><?php echo esc_html( $label ); ?></span><?php endforeach; ?></div>
 			<div class="wpb-manage-days" data-wpb-days aria-label="可改期日期"></div>
 			<input type="hidden" name="new_date">
-			<label>新時段 <select name="new_slot" required disabled><option value="">請先選日期</option></select></label>
+			<input type="hidden" name="new_slot">
+			<strong>新時段</strong>
+			<div class="wpb-manage-slots" data-wpb-manage-slots role="group" aria-label="新時段">請先選日期</div>
 			<p data-wpb-new-time hidden></p>
 			<button type="submit" class="<?php echo $id ? 'wpb-admin-btn wpb-admin-primary' : 'wpb-button'; ?>" disabled>確認改期</button>
 		</form>

@@ -9,7 +9,7 @@ use WP_Error;
 defined( 'ABSPATH' ) || exit;
 
 const SCHEMA_OPTION = 'wumetax_wpb_schema';
-const SCHEMA_VERSION = 3;
+const SCHEMA_VERSION = 4;
 
 function booking_table(): string {
 	global $wpdb;
@@ -35,6 +35,8 @@ function install_schema(): void {
 		payload_hash char(64) NOT NULL,
 		service_id char(32) NOT NULL,
 		service_name varchar(120) NOT NULL,
+		party_size smallint(5) unsigned NOT NULL DEFAULT 1,
+		checked_in_at bigint(20) unsigned NOT NULL DEFAULT 0,
 		price int(10) unsigned DEFAULT NULL,
 		starts_at bigint(20) unsigned NOT NULL,
 		ends_at bigint(20) unsigned NOT NULL,
@@ -66,7 +68,7 @@ function install_schema(): void {
 	) {$charset};" );
 
 	$columns = $wpdb->get_col( "SHOW COLUMNS FROM {$table}" );
-	if ( ! array_diff( array( 'price', 'admin_note', 'buffer_before', 'buffer_after', 'hold_until', 'remind_day', 'remind_soon', 'revision', 'history' ), $columns ) && install_notice_table( $charset ) ) {
+	if ( ! array_diff( array( 'party_size', 'checked_in_at', 'price', 'admin_note', 'buffer_before', 'buffer_after', 'hold_until', 'remind_day', 'remind_soon', 'revision', 'history' ), $columns ) && install_notice_table( $charset ) ) {
 		update_option( SCHEMA_OPTION, SCHEMA_VERSION, true );
 	}
 }
@@ -97,7 +99,7 @@ function overlaps( int $start, int $end, int $exclude = 0 ) {
 	$table = booking_table();
 	$buffer = MAX_BUFFER_MINUTES * MINUTE_IN_SECONDS;
 	$rows = $wpdb->get_results( $wpdb->prepare(
-		"SELECT starts_at - buffer_before * 60 AS starts_at, ends_at + buffer_after * 60 AS ends_at FROM {$table}
+		"SELECT starts_at - buffer_before * 60 AS starts_at, ends_at + buffer_after * 60 AS ends_at, service_id, party_size FROM {$table}
 		WHERE starts_at >= %d AND starts_at < %d AND ends_at + buffer_after * 60 > %d
 		AND starts_at - buffer_before * 60 < %d AND id <> %d
 		AND (status IN ('confirmed', 'completed', 'no_show') OR (status = 'pending' AND (hold_until = 0 OR hold_until > %d)))
@@ -111,6 +113,39 @@ function overlaps( int $start, int $end, int $exclude = 0 ) {
 	), ARRAY_A );
 
 	return $wpdb->last_error ? storage_error() : $rows;
+}
+
+/** Return capacity available for the entire occupied interval, including buffers. */
+function remaining_capacity( int $start, int $end, array $busy, array $config, array $services ): int {
+	$events = array();
+	foreach ( $busy as $row ) {
+		$from = max( $start, (int) $row['starts_at'] );
+		$to = min( $end, (int) $row['ends_at'] );
+		if ( $from >= $to ) {
+			continue;
+		}
+		if ( $row['service_id'] !== $config['service_id'] ) {
+			$other_mode = $services[ $row['service_id'] ]['calendar_mode'] ?? 'shared';
+			if ( 'shared' === $config['calendar_mode'] && 'shared' === $other_mode ) {
+				return 0;
+			}
+			continue;
+		}
+		$units = 'people' === $config['capacity_unit'] ? (int) $row['party_size'] : 1;
+		$events[ $from ] = ( $events[ $from ] ?? 0 ) + $units;
+		$events[ $to ] = ( $events[ $to ] ?? 0 ) - $units;
+	}
+	ksort( $events, SORT_NUMERIC );
+	$peak = $used = 0;
+	foreach ( $events as $change ) {
+		$used += $change;
+		$peak = max( $peak, $used );
+	}
+	return max( 0, $config['capacity'] - $peak );
+}
+
+function required_capacity( array $config, int $party_size ): int {
+	return 'people' === $config['capacity_unit'] ? $party_size : 1;
 }
 
 function unavailable(): WP_Error {
@@ -162,6 +197,11 @@ function book( array $input, string $rate_key = '' ) {
 			return new WP_Error( 'wpb_service_changed', '服務費用或時間已變更，請重新選擇服務。', array( 'status' => 409 ) );
 		}
 		$config = service_schedule( $config, $service );
+		$config['service_id'] = $input['service_id'];
+		$party_size = $input['party_size'] ?? 1;
+		if ( 'bookings' === $config['capacity_unit'] && 1 !== $party_size ) {
+			return new WP_Error( 'wpb_service_changed', '人數設定已變更，請重新選擇服務。', array( 'status' => 409 ) );
+		}
 		if ( ! $day || ! isset( scheduled_slots( $day, $duration, $config, $now )[ $start ] ) ) {
 			return unavailable();
 		}
@@ -179,7 +219,7 @@ function book( array $input, string $rate_key = '' ) {
 		if ( is_wp_error( $overlap ) ) {
 			return $overlap;
 		}
-		if ( $overlap ) {
+		if ( remaining_capacity( $start - $config['buffer_before'] * 60, $end + $config['buffer_after'] * 60, $overlap, $config, services() ) < required_capacity( $config, $party_size ) ) {
 			return unavailable();
 		}
 
@@ -208,6 +248,7 @@ function book( array $input, string $rate_key = '' ) {
 			'remind_soon'    => $reminders['remind_soon'],
 			'created_at'     => $created,
 			'updated_at'     => $created,
+			'party_size'     => $party_size,
 		);
 
 		// wpdb can reconnect and retry a statement. The new connection must not write without the lock.
@@ -216,8 +257,8 @@ function book( array $input, string $rate_key = '' ) {
 			"INSERT INTO {$table}
 			(reference, request_id, payload_hash, service_id, service_name, price, starts_at, ends_at, timezone,
 			status, customer_name, customer_email, customer_phone, note, buffer_before, buffer_after, hold_until,
-			remind_day, remind_soon, created_at, updated_at)
-			SELECT %s, %s, %s, %s, %s, NULLIF(%d, -1), %d, %d, %s, %s, %s, %s, %s, %s, %d, %d, %d, %d, %d, %d, %d
+			remind_day, remind_soon, created_at, updated_at, party_size)
+			SELECT %s, %s, %s, %s, %s, NULLIF(%d, -1), %d, %d, %s, %s, %s, %s, %s, %s, %d, %d, %d, %d, %d, %d, %d, %d
 			WHERE IS_USED_LOCK(%s) = CONNECTION_ID()",
 			array_merge( array_values( $values ), array( $lock ) )
 		) );
@@ -248,7 +289,7 @@ function allowed_statuses( array $booking ): array {
 		return array( 'confirmed', 'cancelled' );
 	}
 	if ( 'confirmed' === $booking['status'] ) {
-		return time() >= (int) $booking['ends_at'] ? array( 'completed', 'no_show', 'cancelled' ) : array( 'cancelled' );
+		return time() >= (int) $booking['ends_at'] ? ( empty( $booking['checked_in_at'] ) ? array( 'completed', 'no_show', 'cancelled' ) : array( 'completed', 'cancelled' ) ) : array( 'cancelled' );
 	}
 	return array();
 }
