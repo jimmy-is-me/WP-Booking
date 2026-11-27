@@ -220,3 +220,6 @@
 	.wpb-admin .wpb-admin-settings .wpb-admin-cards { grid-template-columns:minmax(0,1fr); }
 	.wpb-admin .wpb-admin-calendar-columns .wpb-admin-day { min-height:42px; }
 }
+
+.wpb-admin .wpb-admin-inline-error { margin:12px 0; padding:10px 14px; border:1px solid #fecaca; border-inline-start:4px solid #b91c1c; border-radius:8px; background:#fef2f2; }
+.wpb-admin .wpb-admin-inline-error p { margin:0; color:#991b1b; }

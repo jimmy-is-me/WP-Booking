@@ -129,7 +129,7 @@ function render_admin(): void {
 			$error = get_transient( $error_key );
 			delete_transient( $error_key );
 			if ( is_string( $error ) ) :
-				?><div class="notice notice-error is-dismissible" role="alert"><p><?php echo esc_html( $error ); ?></p></div><?php
+				?><div class="wpb-admin-inline-error" role="alert"><p><?php echo esc_html( $error ); ?></p></div><?php
 			endif;
 		endif;
 		?>
